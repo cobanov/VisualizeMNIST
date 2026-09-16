@@ -66,8 +66,8 @@ inference completes. There is no explanatory playback or transfer animation.
   show real receptive fields at four fixed spatial samples per visible output
   channel, using visible input channels. Flatten uses exact matching indices.
   Softmax has no faux learned edges. Line brightness tracks absolute input contribution.
-- Explore computation stays collapsed by default. Opening it exposes the layer,
-  channel, focus, connection and exposure controls; picking a cell opens its exact
+- Explore computation is open by default and exposes the layer,
+  channel, focus, connection and exposure controls; picking a cell shows its exact
   calculation. Selected receptive fields/dense terms overlay the overview wiring.
 - User-triggered camera framing still eases over 0.9s; pointer interaction cancels
   it and reduced motion makes it immediate. Drawing preserves camera and selection.
@@ -78,6 +78,9 @@ inference completes. There is no explanatory playback or transfer animation.
   discard their black fill, so empty front channels do not obscure deeper maps.
 
 ## Design and deployment
+
+Compact header: project name and architecture selector only. No tagline or
+visible inspiration footer; source attribution remains in `THIRD_PARTY.md`.
 
 English-only RAS family: black, monochrome, Gridnik, fine rules. No language
 switch. Font binaries are ignored by Git and restored into the Pages artifact

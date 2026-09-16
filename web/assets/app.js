@@ -30,14 +30,14 @@ for(let i=0;i<10;i++){
 }
 const bars=[...$('bars').children];
 function changed(){revision++;dirty=true;}
-function clear(){ctx.fillStyle='#000';ctx.fillRect(0,0,280,280);empty=true;changed();$('input-note').textContent='Draw a digit or choose an example.';}
+function clear(){ctx.fillStyle='#000';ctx.fillRect(0,0,280,280);empty=true;changed();}
 function sample(which=7){
   clear();ctx.strokeStyle='#fff';ctx.lineWidth=18;ctx.lineCap='round';ctx.lineJoin='round';ctx.beginPath();
   if(which===7){ctx.moveTo(68,64);ctx.lineTo(216,64);ctx.lineTo(118,220);}else{ctx.moveTo(67,88);ctx.bezierCurveTo(96,25,221,35,202,102);ctx.bezierCurveTo(196,128,105,166,71,217);ctx.lineTo(210,217);}
-  ctx.stroke();empty=false;changed();$('input-note').textContent=`Hand-drawn example ${which}. Try changing a stroke.`;
+  ctx.stroke();empty=false;changed();
 }
 function point(e){const r=pad.getBoundingClientRect();return{x:(e.clientX-r.left)*280/r.width,y:(e.clientY-r.top)*280/r.height};}
-pad.addEventListener('pointerdown',e=>{drawing=true;lastPoint=point(e);pad.setPointerCapture(e.pointerId);ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(lastPoint.x,lastPoint.y,9,0,Math.PI*2);ctx.fill();empty=false;changed();$('input-note').textContent='Your input. Predictions update as you draw.';});
+pad.addEventListener('pointerdown',e=>{drawing=true;lastPoint=point(e);pad.setPointerCapture(e.pointerId);ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(lastPoint.x,lastPoint.y,9,0,Math.PI*2);ctx.fill();empty=false;changed();});
 pad.addEventListener('pointermove',e=>{if(!drawing)return;const p=point(e);ctx.strokeStyle='#fff';ctx.lineWidth=18;ctx.lineCap='round';ctx.lineJoin='round';ctx.beginPath();ctx.moveTo(lastPoint.x,lastPoint.y);ctx.lineTo(p.x,p.y);ctx.stroke();lastPoint=p;changed();});
 for(const event of ['pointerup','pointercancel','lostpointercapture'])pad.addEventListener(event,()=>drawing=false);
 $('clear').onclick=clear;$('sample').onclick=()=>sample(7);$('sample2').onclick=()=>sample(2);
@@ -50,7 +50,6 @@ $('reset-view').onclick=()=>scene.frame();
 function refreshFocus(){
   $('focus').setAttribute('aria-pressed',String(scene.focused));$('focus').textContent=scene.focused?'Overview':'Focus layer';
   $('scene-mode').textContent=scene.focused?'LAYER EXPLORER':'NETWORK OVERVIEW';
-  $('scene-caption').textContent=scene.focused?'All channels. Click a cell to inspect its value.':'Draw a digit. All layers update live.';
 }
 function countPositions(){const s=model?.manifest.layers[selected];return s?s.shape[1]*s.shape[2]:1;}
 function selectLayer(li){
@@ -59,7 +58,7 @@ function selectLayer(li){
   scene.rebuild(scene.focused);
   const spec=model.manifest.layers[li];
   $('layer-select').value=String(li);
-  $('selected-name').textContent=spec.label;$('explanation').textContent=explanations[spec.op];
+  $('explanation').textContent=explanations[spec.op];
   $('channel-control').hidden=spec.op!=='conv';$('edge-control').hidden=spec.op!=='dense';
   $('channel').replaceChildren(...Array.from({length:spec.shape[0]},(_,i)=>new Option(`${String(i).padStart(2,'0')} / ${spec.shape[0]} channels`,String(i))));
   if(spec.op==='conv'){position=Math.floor(spec.shape[1]/2)*spec.shape[2]+Math.floor(spec.shape[2]/2);}
