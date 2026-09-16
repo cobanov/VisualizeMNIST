@@ -1,6 +1,7 @@
 import * as ort from 'onnxruntime-web';
 import {NetworkScene} from './scene.js';
 import {sizeOf, indexOf, validate, convolution, denseTerms, intensity} from './math.mjs';
+import {cycleSeconds} from './motion.mjs';
 
 ort.env.wasm.wasmPaths='https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/';
 ort.env.wasm.numThreads=1;
@@ -62,7 +63,7 @@ function countPositions(){const s=model?.manifest.layers[selected];return s?s.sh
 function selectLayer(li){
   if(!model)return;selected=li;position=0;phase=0;channel=0;scene.channel=0;scene.setActive(li);
   // Rebuild restores the overview sample if a previous selection inserted a channel.
-  scene.rebuild();
+  scene.rebuild(scene.focused);
   const spec=model.manifest.layers[li];
   [...$('layers').children].forEach((b,i)=>b.setAttribute('aria-pressed',String(i===li)));
   const rail=$('layers'),button=rail.children[li];
@@ -192,7 +193,7 @@ function loop(t){
   requestAnimationFrame(loop);const dt=Math.min((t-lastTime)/1000,.05);lastTime=t;
   if(model&&dirty&&!model.pending){const current=model;current.pending=infer(current).finally(()=>current.pending=null);}
   if(model?.values&&playing&&!drawing&&model.manifest.layers[selected].op!=='input'){
-    phase+=dt*Number($('speed').value)*1.6;
+    phase+=dt*Number($('speed').value)/cycleSeconds[model.manifest.layers[selected].op];
     if(touring){tourTime+=dt*Number($('speed').value);if(tourTime>7){tourTime=0;selectLayer(selected>=model.manifest.layers.length-1?1:selected+1);}}
     if(phase>=1){phase%=1;position=(position+1)%countPositions();updateOperation();}
   }

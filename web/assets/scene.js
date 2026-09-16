@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {channels, indexOf, intensity, sizeOf} from './math.mjs';
+import {easeInOut, transferMotion} from './motion.mjs';
 
 const white = new THREE.Color('#e0e0e0'), black = new THREE.Color('#000');
 const matrix = new THREE.Matrix4(), color = new THREE.Color();
@@ -16,6 +17,8 @@ export class NetworkScene {
     this.camera = new THREE.PerspectiveCamera(36, 1, .1, 500);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
+    this.controls.dampingFactor = .075;
+    this.controls.addEventListener('start', () => { this.cameraMove = null; });
     this.controls.minDistance = 3;
     this.controls.maxDistance = 180;
     this.root = new THREE.Group(); this.scene.add(this.root);
@@ -26,7 +29,7 @@ export class NetworkScene {
     new ResizeObserver(() => {
       const w = element.clientWidth, h = element.clientHeight;
       this.renderer.setSize(w,h,false); this.camera.aspect = w/h; this.camera.updateProjectionMatrix();
-      if (this.layers.length) this.frame();
+      if (this.layers.length) this.frame(false);
     }).observe(element);
     const ray = new THREE.Raycaster();
     let down;
@@ -38,9 +41,19 @@ export class NetworkScene {
       const hit = ray.intersectObjects(this.layers.filter(l=>l.group.visible).map(l=>l.mesh))[0];
       if (hit) { const layer=this.layers.findIndex(l=>l.mesh===hit.object); onPick(layer,this.layers[layer].indices[hit.instanceId]); }
     });
-    this.ghost = new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshBasicMaterial({color:'#eee',transparent:true,opacity:.78,depthTest:false}),512);
+    const transferMaterial=new THREE.MeshBasicMaterial({color:'#ddd',transparent:true,opacity:.72,depthTest:false,depthWrite:false});
+    // Instance alpha fades each cell without shrinking it into a particle.
+    transferMaterial.onBeforeCompile=shader=>{
+      shader.vertexShader='attribute float transferOpacity;\nvarying float vTransferOpacity;\n'+shader.vertexShader;
+      shader.vertexShader=shader.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\nvTransferOpacity = transferOpacity;');
+      shader.fragmentShader='varying float vTransferOpacity;\n'+shader.fragmentShader;
+      shader.fragmentShader=shader.fragmentShader.replace('#include <color_fragment>','#include <color_fragment>\ndiffuseColor.a *= vTransferOpacity;');
+    };
+    this.ghost = new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),transferMaterial,512);
+    this.transferOpacity=new THREE.InstancedBufferAttribute(new Float32Array(512),1);
+    this.ghost.geometry.setAttribute('transferOpacity',this.transferOpacity);
     this.ghost.count=0; this.ghost.frustumCulled=false; this.overlays.add(this.ghost);
-    this.marker=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1,1,1)), new THREE.LineBasicMaterial({color:'#fff',depthTest:false}));
+    this.marker=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1,1,1)), new THREE.LineBasicMaterial({color:'#fff',transparent:true,opacity:.65,depthTest:false}));
     this.marker.visible=false;this.overlays.add(this.marker);
     this.links=new THREE.Group();this.overlays.add(this.links);
   }
@@ -64,9 +77,9 @@ export class NetworkScene {
     });
     this.totalWidth=cursor;
     for(const l of this.layers)l.z-=cursor/2;
-    this.rebuild();
+    this.rebuild(true);
   }
-  rebuild() {
+  rebuild(reframe = false) {
     this.clearLinks();this.ghost.count=0;this.marker.visible=false;
     for(const l of this.layers) {
       this.disposeGroup(l.group);
@@ -110,28 +123,34 @@ export class NetworkScene {
         const element=document.createElement('span');element.className='channel-label';element.textContent=`CH ${String(c).padStart(2,'0')}`;this.labels.append(element);l.channelLabels.push({element,position:p});
       }
     }
-    this.setActive(this.active);this.frame();
+    this.setActive(this.active);if(reframe)this.frame();
   }
   setActive(index) {
     this.active=index;
     for(const l of this.layers){l.label.classList.toggle('active',l.li===index);l.label.hidden=!l.group.visible||(!this.focused&&l.li!==index);l.outline.material.opacity=l.li===index?.9:.55;}
   }
-  focus(value) {this.focused=value;this.rebuild();}
-  frame() {
+  focus(value) {this.focused=value;this.rebuild(true);}
+  frame(animate = true) {
     if(!this.layers.length)return;
     const bounds=new THREE.Box3();
     for(const l of this.layers)if(l.group.visible)bounds.union(l.bounds);
     const center=bounds.getCenter(new THREE.Vector3());
     const direction=this.focused?new THREE.Vector3(0,0,1):new THREE.Vector3(-1,.55,1.3).normalize();
-    this.camera.position.copy(center).addScaledVector(direction,100);this.camera.lookAt(center);
-    const inverse=this.camera.quaternion.clone().invert(),tan=Math.tan(THREE.MathUtils.degToRad(this.camera.fov/2));
+    const destination=center.clone().addScaledVector(direction,100);
+    const rotation=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(destination,center,this.camera.up));
+    const inverse=rotation.invert(),tan=Math.tan(THREE.MathUtils.degToRad(this.camera.fov/2));
     let distance=0;
     for(const l of this.layers.filter(l=>l.group.visible))for(const x of [l.bounds.min.x,l.bounds.max.x])for(const y of [l.bounds.min.y-1,l.bounds.max.y])for(const z of [l.bounds.min.z,l.bounds.max.z]){
       const p=new THREE.Vector3(x,y,z).sub(center).applyQuaternion(inverse);
       distance=Math.max(distance,Math.abs(p.x)/(tan*this.camera.aspect)+p.z,Math.abs(p.y)/tan+p.z);
     }
-    this.camera.position.copy(center).addScaledVector(direction,distance*1.08+1);
-    this.controls.target.copy(center);this.controls.update();
+    destination.copy(center).addScaledVector(direction,distance*1.08+1);
+    if(animate&&this.framed&&!matchMedia('(prefers-reduced-motion: reduce)').matches){
+      this.cameraMove={from:this.camera.position.clone(),targetFrom:this.controls.target.clone(),to:destination,target:center,elapsed:0};
+    }else{
+      this.cameraMove=null;this.camera.position.copy(destination);this.controls.target.copy(center);this.controls.update();
+    }
+    this.framed=true;
   }
   values(values) {
     for(const l of this.layers) { const raw=values[l.spec.tensor];if(raw.length!==sizeOf(l.spec.shape))throw Error(`Tensor size mismatch: ${l.spec.tensor}`);l.raw=raw;l.dirty=true; }
@@ -149,7 +168,8 @@ export class NetworkScene {
     if(!info)return;
     const l=this.layers[this.active],source=this.layers.find(a=>a.spec.tensor===l.spec.source);
     const target=l.positions.get(info.index);
-    if(target){this.marker.visible=true;this.marker.position.copy(target);this.marker.scale.setScalar(l.cell*(1.1+.2*Math.sin(Math.PI*phase)));}
+    const arrival=transferMotion(phase).arrival;
+    if(target){this.marker.visible=true;this.marker.position.copy(target);this.marker.scale.setScalar(l.cell*(1.14-.08*arrival));this.marker.material.opacity=.4+.5*arrival;}
     if(this.focused||!source)return;
     let pairs=[];
     if(l.spec.op==='conv'&&target) {
@@ -161,12 +181,17 @@ export class NetworkScene {
     } else if(l.spec.op==='softmax'&&target) {
       const p=source.positions.get(info.index);if(p)pairs.push([p,target,.09]);
     }
-    const t=Math.max(0,Math.min(1,(phase-.25)/.65)),ease=t*t*(3-2*t);
     this.ghost.count=Math.min(512,pairs.length);
     for(let i=0;i<this.ghost.count;i++){
-      const[a,b,s]=pairs[i];v.copy(a).lerp(b,ease);scale.set(s,s,s*.4);matrix.compose(v,q,scale);this.ghost.setMatrixAt(i,matrix);
+      // An ordered wave keeps the tensor readable. No random trajectories or index shuffling.
+      const {travel,visibility}=transferMotion(phase,i/Math.max(1,this.ghost.count-1));
+      const[a,b,s]=pairs[i];v.copy(a).lerp(b,travel);
+      const size=s*(1-.12*travel);
+      this.transferOpacity.setX(i,visibility);
+      scale.set(size,size,size*.4);matrix.compose(v,q,scale);this.ghost.setMatrixAt(i,matrix);
     }
     this.ghost.instanceMatrix.needsUpdate=true;
+    this.transferOpacity.needsUpdate=true;
   }
   operationLinks(info) {
     this.clearLinks();if(!info||this.focused)return;
@@ -189,6 +214,14 @@ export class NetworkScene {
     this.line(pos);this.line(neg,true);
   }
   render(dt,reduced) {
+    if(this.cameraMove){
+      const move=this.cameraMove;move.elapsed+=dt;
+      const t=reduced?1:easeInOut(move.elapsed/.9);
+      this.camera.position.lerpVectors(move.from,move.to,t);this.controls.target.lerpVectors(move.targetFrom,move.target,t);
+      // Clear residual orbit damping before applying the authored camera move.
+      this.controls.enableDamping=false;this.controls.update();this.controls.enableDamping=true;
+      if(t===1)this.cameraMove=null;
+    }
     for(const l of this.layers){
       let changing=false;
       for(let i=0;i<l.indices.length;i++){
