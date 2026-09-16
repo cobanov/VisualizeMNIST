@@ -48,8 +48,8 @@ $('tour').onclick=()=>{setTour(!touring);if(touring){if(scene.focused){scene.foc
 $('play').onclick=()=>setPlaying(!playing);
 $('step').onclick=()=>{setPlaying(false);position=(position+1)%countPositions();phase=0;updateOperation();};
 $('progress').oninput=()=>{setPlaying(false);position=+$('progress').value;phase=0;updateOperation();};
-$('channel').onchange=()=>{channel=+$('channel').value;scene.channel=channel;scene.rebuild();updateOperation();};
-$('edge-mode').onchange=()=>updateOperation();
+$('channel').onchange=()=>{setTour(false);channel=+$('channel').value;scene.channel=channel;scene.rebuild();updateOperation();};
+$('edge-mode').onchange=()=>{setTour(false);updateOperation();};
 $('exposure').oninput=()=>{scene.exposure=+$('exposure').value;scene.layers.forEach(l=>l.dirty=true);drawDetail();};
 $('focus').onclick=()=>{setTour(false);scene.focus(!scene.focused);refreshFocus();updateOperation();};
 $('reset-view').onclick=()=>scene.frame();
@@ -65,6 +65,8 @@ function selectLayer(li){
   scene.rebuild();
   const spec=model.manifest.layers[li];
   [...$('layers').children].forEach((b,i)=>b.setAttribute('aria-pressed',String(i===li)));
+  const rail=$('layers'),button=rail.children[li];
+  if(button)rail.scrollLeft+=button.getBoundingClientRect().left-rail.getBoundingClientRect().left-(rail.clientWidth-button.offsetWidth)/2;
   $('selected-name').textContent=spec.label;$('explanation').textContent=explanations[spec.op];
   $('channel-control').hidden=spec.op!=='conv';$('edge-control').hidden=spec.op!=='dense';
   $('channel').replaceChildren(...Array.from({length:spec.shape[0]},(_,i)=>new Option(`${String(i).padStart(2,'0')} / ${spec.shape[0]} channels`,String(i))));

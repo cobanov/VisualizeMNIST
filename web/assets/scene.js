@@ -114,7 +114,7 @@ export class NetworkScene {
   }
   setActive(index) {
     this.active=index;
-    for(const l of this.layers){l.label.classList.toggle('active',l.li===index);l.label.hidden=!l.group.visible||(!this.focused&&l.li!==index&&l.li!==this.layers.length-1);l.outline.material.opacity=l.li===index?.9:.55;}
+    for(const l of this.layers){l.label.classList.toggle('active',l.li===index);l.label.hidden=!l.group.visible||(!this.focused&&l.li!==index);l.outline.material.opacity=l.li===index?.9:.55;}
   }
   focus(value) {this.focused=value;this.rebuild();}
   frame() {
