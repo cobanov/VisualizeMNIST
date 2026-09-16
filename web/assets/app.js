@@ -1,21 +1,22 @@
 import * as ort from 'onnxruntime-web';
 import {NetworkScene} from './scene.js';
 import {sizeOf, validate, convolution, denseTerms, intensity} from './math.mjs';
-import {cycleSeconds, flowAt} from './motion.mjs';
+import {flowAt, playbackAt} from './motion.mjs';
 
 ort.env.wasm.wasmPaths='https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/';
 ort.env.wasm.numThreads=1;
 const $=id=>document.getElementById(id);
 const motion=matchMedia('(prefers-reduced-motion: reduce)');
-let touring=false;
-let playing=!motion.matches, phase=0, position=0, selected=1, channel=0, model=null, revision=0, generation=0;
+let restartRequested=false, runAt=0, playbackTime=0;
+let playing=false, phase=0, position=0, selected=1, channel=0, model=null, revision=0, generation=0;
 let dirty=true, empty=false, drawing=false, lastPoint=null, operation=null, lastTime=0;
 const flowOperations=new Map();
 let inspectorTime=0;
 const scene=new NetworkScene($('view'),(li,index)=>{
-  selectLayer(li);
+  if(!model?.values)return;
+  setPlaying(false);$('inspector').open=true;selectLayer(li);
   const s=model.manifest.layers[li];channel=Math.floor(index/(s.shape[1]*s.shape[2]));
-  $('channel').value=String(channel);position=index%(s.shape[1]*s.shape[2]);phase=0;setPlaying(false);
+  $('channel').value=String(channel);position=index%(s.shape[1]*s.shape[2]);phase=0;
   scene.channel=channel;scene.rebuild();updateOperation();
 });
 const pad=$('pad'),ctx=pad.getContext('2d'),small=document.createElement('canvas'),smallCtx=small.getContext('2d',{willReadFrequently:true});
@@ -32,7 +33,10 @@ for(let i=0;i<10;i++){
   bar.innerHTML=`<span>${i}</span><div class="bar-track"><div class="bar-fill"></div></div><span>0%</span>`;$('bars').append(bar);
 }
 const bars=[...$('bars').children];
-function changed(){revision++;dirty=true;}
+function changed(){
+  revision++;dirty=true;setPlaying(false);
+  restartRequested=!empty;runAt=performance.now()+300;
+}
 function clear(){ctx.fillStyle='#000';ctx.fillRect(0,0,280,280);empty=true;changed();$('input-note').textContent='Draw a digit or choose an example.';}
 function sample(which=7){
   clear();ctx.strokeStyle='#fff';ctx.lineWidth=18;ctx.lineCap='round';ctx.lineJoin='round';ctx.beginPath();
@@ -42,29 +46,34 @@ function sample(which=7){
 function point(e){const r=pad.getBoundingClientRect();return{x:(e.clientX-r.left)*280/r.width,y:(e.clientY-r.top)*280/r.height};}
 pad.addEventListener('pointerdown',e=>{drawing=true;lastPoint=point(e);pad.setPointerCapture(e.pointerId);ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(lastPoint.x,lastPoint.y,9,0,Math.PI*2);ctx.fill();empty=false;changed();$('input-note').textContent='Your input. Predictions update as you draw.';});
 pad.addEventListener('pointermove',e=>{if(!drawing)return;const p=point(e);ctx.strokeStyle='#fff';ctx.lineWidth=18;ctx.lineCap='round';ctx.lineJoin='round';ctx.beginPath();ctx.moveTo(lastPoint.x,lastPoint.y);ctx.lineTo(p.x,p.y);ctx.stroke();lastPoint=p;changed();});
-for(const event of ['pointerup','pointercancel','lostpointercapture'])pad.addEventListener(event,()=>drawing=false);
+for(const event of ['pointerup','pointercancel','lostpointercapture'])pad.addEventListener(event,()=>{if(drawing){drawing=false;runAt=performance.now()+300;}});
 $('clear').onclick=clear;$('sample').onclick=()=>sample(7);$('sample2').onclick=()=>sample(2);
 function setPlaying(value){
-  if(value&&!playing)phase=.76*position/Math.max(1,countPositions()-1);
-  playing=value;if(!value)setTour(false);
-  $('play').textContent=value?'Pause':'Play';$('play').setAttribute('aria-pressed',String(value));
-  updateOperation();
+  playing=value;restartRequested=false;
+  $('play').textContent=value?'Pause':'Replay';$('play').setAttribute('aria-pressed',String(value));
+  $('play').disabled=!model?.values||empty;
+  refreshFocus();updateOperation();
 }
-setPlaying(playing);motion.addEventListener('change',()=>{if(motion.matches)setPlaying(false);});
-function setTour(value){touring=value;$('tour').setAttribute('aria-pressed',String(value));$('tour').textContent=value?'Stop tour':'Follow signal';}
-$('tour').onclick=()=>{setTour(!touring);if(touring){if(scene.focused){scene.focus(false);refreshFocus();}setPlaying(true);selectLayer(1);}};
-$('play').onclick=()=>setPlaying(!playing);
-$('step').onclick=()=>{setPlaying(false);position=(position+1)%countPositions();phase=0;updateOperation();};
-$('progress').oninput=()=>{setPlaying(false);position=+$('progress').value;phase=0;updateOperation();};
-$('channel').onchange=()=>{setTour(false);channel=+$('channel').value;scene.channel=channel;scene.rebuild();updateOperation();};
-$('edge-mode').onchange=()=>{setTour(false);flowOperations.clear();updateOperation();};
+function startPlayback(){
+  if(!model?.values||empty)return;
+  if(dirty||model.pending||drawing){restartRequested=true;return;}
+  if(scene.focused)scene.focus(false);
+  playbackTime=0;setPlaying(!motion.matches);
+  selectLayer(motion.matches?model.manifest.layers.length-1:1);
+  if(motion.matches){position=model.values.probs.indexOf(Math.max(...model.values.probs));updateOperation();}
+}
+setPlaying(false);motion.addEventListener('change',()=>{if(motion.matches)setPlaying(false);});
+$('play').onclick=()=>{if(playing)setPlaying(false);else startPlayback();};
+$('layer-select').onchange=()=>{setPlaying(false);selectLayer(+$('layer-select').value);};
+$('channel').onchange=()=>{setPlaying(false);channel=+$('channel').value;scene.channel=channel;scene.rebuild();updateOperation();};
+$('edge-mode').onchange=()=>{flowOperations.clear();updateOperation();};
 $('exposure').oninput=()=>{scene.exposure=+$('exposure').value;scene.layers.forEach(l=>l.dirty=true);drawDetail();};
-$('focus').onclick=()=>{setTour(false);scene.focus(!scene.focused);refreshFocus();updateOperation();};
+$('focus').onclick=()=>{setPlaying(false);scene.focus(!scene.focused);refreshFocus();updateOperation();};
 $('reset-view').onclick=()=>scene.frame();
 function refreshFocus(){
   $('focus').setAttribute('aria-pressed',String(scene.focused));$('focus').textContent=scene.focused?'Overview':'Focus layer';
   $('scene-mode').textContent=scene.focused?'LAYER EXPLORER':'NETWORK OVERVIEW';
-  $('scene-caption').textContent=scene.focused?'All channels. Click a cell to inspect its exact value.':'Overlapping signal flow. Pause or step to inspect a single cell.';
+  $('scene-caption').textContent=scene.focused?'All channels. Click a cell to inspect its value.':playing?`${model.manifest.layers[selected].label} · ${selected} / ${model.manifest.layers.length-1}`:'Draw a digit to follow its path through the network.';
 }
 function countPositions(){const s=model?.manifest.layers[selected];return s?s.shape[1]*s.shape[2]:1;}
 function selectLayer(li){
@@ -72,19 +81,16 @@ function selectLayer(li){
   // Rebuild restores the overview sample if a previous selection inserted a channel.
   scene.rebuild(scene.focused);
   const spec=model.manifest.layers[li];
-  [...$('layers').children].forEach((b,i)=>b.setAttribute('aria-pressed',String(i===li)));
-  const rail=$('layers'),button=rail.children[li];
-  if(button)rail.scrollLeft+=button.getBoundingClientRect().left-rail.getBoundingClientRect().left-(rail.clientWidth-button.offsetWidth)/2;
+  $('layer-select').value=String(li);
   $('selected-name').textContent=spec.label;$('explanation').textContent=explanations[spec.op];
   $('channel-control').hidden=spec.op!=='conv';$('edge-control').hidden=spec.op!=='dense';
   $('channel').replaceChildren(...Array.from({length:spec.shape[0]},(_,i)=>new Option(`${String(i).padStart(2,'0')} / ${spec.shape[0]} channels`,String(i))));
-  $('play').disabled=spec.op==='input';$('step').disabled=false;$('progress').disabled=false;
   if(spec.op==='conv'&&!playing){position=Math.floor(spec.shape[1]/2)*spec.shape[2]+Math.floor(spec.shape[2]/2);}
   refreshFocus();updateOperation();
 }
 async function fetchOK(url){const r=await fetch(url);if(!r.ok)throw Error(`${r.status}: ${url}`);return r;}
 async function load(file){
-  setTour(false);const token=++generation,previous=model;model=null;$('model-select').disabled=true;
+  setPlaying(false);const token=++generation,previous=model;model=null;$('model-select').disabled=true;$('play').disabled=true;
   $('loading').hidden=false;$('loading').textContent='Loading trained network…';
   if(previous){await previous.pending?.catch(()=>{});await previous.session.release();}
   let session;
@@ -100,16 +106,9 @@ async function load(file){
     }
     if(token!==generation){await session.release();return;}
     model={manifest,session,weights,values:null,pending:null};scene.load(manifest);scene.active=1;scene.channel=0;
-    $('layers').replaceChildren(...manifest.layers.map((s,i)=>{
-      const button=document.createElement('button');button.setAttribute('aria-label',`Inspect ${s.label}`);
-      const number=document.createElement('span');number.textContent=String(i).padStart(2,'0');
-      const title=document.createElement('strong');title.textContent=s.label;
-      const shape=document.createElement('small');shape.textContent=s.shape[0]>1?s.shape.join(' × '):`${sizeOf(s.shape)} values`;
-      button.append(number,title,shape);button.onclick=()=>{setTour(false);selectLayer(i);};return button;
-    }));
+    $('layer-select').replaceChildren(...manifest.layers.map((s,i)=>new Option(s.label,String(i))));
     $('input-size').textContent=manifest.input.image.join(' × ');$('backend').textContent=backend;
     $('params').textContent=`${manifest.params.toLocaleString('en-US')} PARAMETERS`;
-    $('tensor-summary').textContent=`${manifest.layers.length} stages · ${manifest.layers.filter(s=>s.op==='conv').length?'3 × 3 kernels / stride 2 / padding 1':'Dense layers / ReLU / softmax'}`;
     selectLayer(1);changed();$('loading').hidden=true;
   }catch(error){if(session)await session.release();showError(error);}finally{if(token===generation)$('model-select').disabled=false;}
 }
@@ -129,16 +128,13 @@ async function infer(current){
     const probs=current.values.probs;let top=0;for(let i=1;i<10;i++)if(probs[i]>probs[top])top=i;
     $('digit').textContent=empty?'·':String(top);$('confidence').textContent=empty?'Blank input':`${(probs[top]*100).toFixed(1)}% probability`;
     bars.forEach((bar,i)=>{bar.classList.toggle('top',!empty&&i===top);bar.querySelector('.bar-fill').style.width=empty?'0%':`${probs[i]*100}%`;bar.lastChild.textContent=empty?'·':`${Math.round(probs[i]*100)}%`;});
-    updateOperation();
+    $('play').disabled=empty;updateOperation();
   }catch(error){if(model===current)showError(error);}finally{tensor.dispose();if(outputs)Object.values(outputs).forEach(t=>t.dispose());}
 }
 function updateOperation(){
   operation=null;if(!model)return;
   const spec=model.manifest.layers[selected];position=Math.max(0,Math.min(position,countPositions()-1));
   const index=channel*countPositions()+position,y=Math.floor(position/spec.shape[2]),x=position%spec.shape[2];
-  $('progress').max=String(countPositions()-1);$('progress').value=String(position);
-  $('position').textContent=`${position+1} / ${countPositions()}`;
-  $('operation').textContent={conv:'Convolution scan',dense:'Weighted sum',flatten:'Tensor → vector',softmax:'Probability',input:'Input pixels'}[spec.op];
   if(!model.values)return;
   const values=model.values,raw=values[spec.tensor][index];
   operation={index,terms:[],raw};
@@ -165,7 +161,9 @@ function updateOperation(){
   }
   scene.operationLinks(playing?null:operation);drawDetail();
 }
+$('inspector').addEventListener('toggle',()=>{if($('inspector').open)drawDetail();});
 function drawDetail(){
+  if(!$('inspector').open)return;
   g.fillStyle='#050505';g.fillRect(0,0,504,188);g.font='16px monospace';g.textBaseline='middle';
   if(!operation||!model)return;
   const spec=model.manifest.layers[selected];
@@ -199,11 +197,17 @@ function drawDetail(){
 function loop(t){
   requestAnimationFrame(loop);const dt=Math.min((t-lastTime)/1000,.05);lastTime=t;
   if(model&&dirty&&!model.pending){const current=model;current.pending=infer(current).finally(()=>current.pending=null);}
-  if(model?.values&&playing&&!drawing&&model.manifest.layers[selected].op!=='input'){
-    phase+=dt*Number($('speed').value)/cycleSeconds[model.manifest.layers[selected].op];
-    if(phase>=1){
-      phase%=1;
-      if(touring)selectLayer(selected>=model.manifest.layers.length-1?1:selected+1);
+  // Wait for the latest stroke's inference, including a short multi-stroke grace period.
+  if(restartRequested&&model?.values&&!model.pending&&!dirty&&!drawing&&t>=runAt)startPlayback();
+  if(model?.values&&playing&&!drawing){
+    playbackTime+=dt;
+    const next=playbackAt(playbackTime,model.manifest.layers);
+    if(next.index!==selected)selectLayer(next.index);
+    phase=next.phase;
+    if(next.done){
+      position=model.values.probs.indexOf(Math.max(...model.values.probs));
+      setPlaying(false);
+      $('scene-caption').textContent='Prediction reached. Draw again or replay.';
     }
   }
   let flow=null;
@@ -227,6 +231,6 @@ function loop(t){
 }
 addEventListener('keydown',e=>{
   if(['INPUT','SELECT','TEXTAREA','BUTTON','SUMMARY'].includes(e.target.tagName))return;
-  if(e.code==='Space'){e.preventDefault();setPlaying(!playing);}else if(e.key.toLowerCase()==='c')clear();
+  if(e.code==='Space'){e.preventDefault();$('play').click();}else if(e.key.toLowerCase()==='c')clear();
 });
 sample(7);load('mnist_cnn.json');requestAnimationFrame(loop);

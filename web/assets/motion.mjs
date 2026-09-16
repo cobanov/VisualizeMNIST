@@ -24,3 +24,13 @@ export function transferMotion(phase, order = 0) {
     arrival: easeInOut((phase - .72) / .18) * (1 - easeInOut((phase - .93) / .07)),
   };
 }
+
+// A single input-to-prediction pass. Completed playback stays at the final stage.
+export function playbackAt(seconds, layers) {
+  for(let index=1;index<layers.length;index++){
+    const duration=cycleSeconds[layers[index].op];
+    if(seconds<duration)return {index,phase:seconds/duration,done:false};
+    seconds-=duration;
+  }
+  return {index:layers.length-1,phase:1,done:true};
+}

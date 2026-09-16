@@ -31,7 +31,7 @@ not a measurement of GPU operation timing.
 ## Source map
 
 - `web/assets/app.js`: drawing, race-safe model/inference lifecycle, inspector,
-  operation playback, guided tour, UI.
+  automatic input-to-prediction playback, UI.
 - `web/assets/scene.js`: instanced 3D cells, channel stacks/contact sheets,
   receptive fields, moving patches, flatten morph, dense connections, picking.
 - `web/assets/motion.mjs`: bounded C2 easing, whole-pass timing, overlapping
@@ -58,18 +58,21 @@ not a measurement of GPU operation timing.
   the input channel with greatest absolute contribution (labeled).
 - Paused dense view shows top 12 |x*w| or |w| for one selected neuron; solid positive
   weight, dashed negative. The detail table shows the first six contributions.
-- Play/pause, step, scrub and speed are operation-local. Follow signal cycles
-  through stages after each full pass. Play launches overlapping cell transfers,
-  with gather, eased travel, settle and fade. Duration is per selected channel/vector,
-  not per neuron: conv 4.2s, dense 3.2s, flatten 2.8s, softmax 2s at 1×.
-  Focus shows concurrent arrival pulses; pause/step restores single-cell inspection.
-  Dense flow caches the same top-12 ranking per neuron. The inspector refreshes
-  at most every 120ms, independently of the render loop. All transfers settle
-  before a pass resets. Animation does not imply measured GPU parallelism.
-  Camera framing eases over 0.9s, with pointer interaction canceling the move.
-  Layer/channel selection preserves the overview camera.
-  Reduced motion starts paused and camera changes are immediate. Layer buttons and sliders
-  provide keyboard alternatives to picking cells.
+- Drawing, examples, and architecture changes automatically start one complete
+  input-to-prediction pass once the latest inference finishes and the pointer has
+  been up for 300ms. New strokes cancel the old pass. Clear leaves playback idle.
+  Playback stops on the predicted class instead of looping. Replay/Pause is the
+  only playback control; there is no bottom slider, speed picker or layer rail.
+- The inspector is collapsed under Explore computation, with a keyboard-accessible
+  layer selector and the existing channel, focus, connection and exposure controls.
+  Picking a cell pauses the pass and opens its inspector. Prediction values remain
+  immediate, independent of explanatory animation.
+- Transfers overlap with gather, eased travel, settle and fade. Duration is per
+  selected channel/vector: conv 4.2s, dense 3.2s, flatten 2.8s, softmax 2s.
+  Focus shows concurrent arrival pulses. Dense flow caches top-12 rankings.
+  A pure timeline visits each stage once and remains at the final stage afterward.
+  Camera framing eases over 0.9s; pointer interaction cancels the move.
+  Reduced motion goes directly to the final stage, without automatic playback.
 
 ## Design and deployment
 

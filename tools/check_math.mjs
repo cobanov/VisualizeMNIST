@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {convolution, denseTerms, indexOf, channels, intensity, validate} from '../web/assets/math.mjs';
-import {easeInOut, transferMotion, cycleSeconds, flowAt} from '../web/assets/motion.mjs';
+import {easeInOut, transferMotion, cycleSeconds, flowAt, playbackAt} from '../web/assets/motion.mjs';
 for (const id of ['mnist_cnn', 'mnist_mlp']) validate(JSON.parse(readFileSync(new URL(`../web/models/${id}.json`, import.meta.url))));
 assert.equal(indexOf([2, 3, 4], 1, 2, 3), 23);
 assert.deepEqual(channels(32), [0, 6, 12, 19, 25, 31]);
@@ -51,3 +51,17 @@ for(const count of [1,4,10,16,64,128,256]){
 assert.ok(cycleSeconds.conv<=4.2);
 assert.ok(flowAt(.5,256).length>50);
 console.log('PASS: full pass coverage, concurrent cells, bounded 4.2s channel scan, settled loop boundary');
+
+for(const id of ['mnist_cnn','mnist_mlp']){
+  const {layers}=JSON.parse(readFileSync(new URL(`../web/models/${id}.json`,import.meta.url)));
+  const seen=new Set();let time=0,previous=1,state;
+  do{
+    state=playbackAt(time,layers);seen.add(state.index);
+    assert.ok(state.index>=previous&&state.phase>=0&&state.phase<=1);
+    previous=state.index;time+=1/60;
+  }while(!state.done&&time<60);
+  assert.ok(state.done);assert.equal(seen.size,layers.length-1);
+  assert.deepEqual(playbackAt(time+60,layers),state); // No wraparound or repeated tour.
+  assert.deepEqual(playbackAt(0,layers),{index:1,phase:0,done:false});
+}
+console.log('PASS: CNN/MLP automatic pass visits every stage once, stops at prediction, restarts from input');
