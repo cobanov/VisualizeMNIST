@@ -71,6 +71,8 @@ inference completes. There is no explanatory playback or transfer animation.
   calculation. Selected receptive fields/dense terms overlay the overview wiring.
 - User-triggered camera framing still eases over 0.9s; pointer interaction cancels
   it and reduced motion makes it immediate. Drawing preserves camera and selection.
+- Input is at the +Z end of the network. Overview looks from the input side;
+  both overview and focus read columns left to right, matching the drawing pad.
 
 ## Design and deployment
 

@@ -66,7 +66,8 @@ export class NetworkScene {
       return {spec,li,group,label,x,z,width,cell,raw:new Float32Array(sizeOf(spec.shape)),indices:[],positions:new Map()};
     });
     this.totalWidth=cursor;
-    for(const l of this.layers)l.z-=cursor/2;
+    // Input faces +Z, matching the drawing pad and the focused layer view.
+    for(const l of this.layers)l.z=cursor/2-l.z;
     this.rebuild(true);
   }
   rebuild(reframe = false) {
@@ -165,7 +166,7 @@ export class NetworkScene {
     const bounds=new THREE.Box3();
     for(const l of this.layers)if(l.group.visible)bounds.union(l.bounds);
     const center=bounds.getCenter(new THREE.Vector3());
-    const direction=this.focused?new THREE.Vector3(0,0,1):new THREE.Vector3(-1,.55,1.3).normalize();
+    const direction=this.focused?new THREE.Vector3(0,0,1):new THREE.Vector3(1,.55,1.3).normalize();
     const destination=center.clone().addScaledVector(direction,100);
     const rotation=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(destination,center,this.camera.up));
     const inverse=rotation.invert(),tan=Math.tan(THREE.MathUtils.degToRad(this.camera.fov/2));
