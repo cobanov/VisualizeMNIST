@@ -1,11 +1,11 @@
 # Neural observatory / VisualizeMNIST
 
-[Open the interactive observatory](https://cobanov.github.io/VisualizeMNIST/)
+[Open the interactive observatory](https://mnist.cobanov.dev/)
 
 Draw a digit and explore two real pretrained networks in 3D. Follow a convolution,
 inspect every feature-map channel, watch a tensor flatten, and trace individual
-weighted contributions. Includes pause, step, scrub, a guided signal tour and a
-responsive interface. ONNX Runtime runs inference with WebGPU or WASM; Three.js
+weighted contributions. Activations update live as you draw, with sampled real
+connections and a collapsible inspector. ONNX Runtime runs inference with WebGPU or WASM; Three.js
 renders the scene with WebGL.
 
 Built on [okdalto/VisualizeMNIST](https://github.com/okdalto/VisualizeMNIST) and

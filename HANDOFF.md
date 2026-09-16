@@ -81,7 +81,11 @@ Forks without those assets can use system monospace. Do not commit font files.
 
 Own repository: https://github.com/cobanov/VisualizeMNIST
 Upstream: https://github.com/okdalto/VisualizeMNIST
-Pages: https://cobanov.github.io/VisualizeMNIST/
+Pages: https://mnist.cobanov.dev/
+
+GitHub Pages custom domain: `mnist.cobanov.dev`. Cloudflare has a DNS-only CNAME
+from `mnist` to `cobanov.github.io`. Deployment uses Actions; the custom domain
+is configured in repository Pages settings, with no `CNAME` file required.
 
 ## Deliberate limits and next architecture
 
