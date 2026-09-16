@@ -182,7 +182,7 @@ export class NetworkScene {
       corners.push(p);
       distance=Math.max(distance,Math.abs(p.x)/(tan*this.camera.aspect)+p.z,Math.abs(p.y)/tan+p.z);
     }
-    distance=distance*1.08+1;
+    distance=distance*(this.focused?1.08:.86)+1;
     const [offsetX,offsetY]=perspectiveCenter(corners,distance);
     center.add(new THREE.Vector3(offsetX,offsetY,0).applyQuaternion(rotation));
     destination.copy(center).addScaledVector(direction,distance);
