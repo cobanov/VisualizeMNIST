@@ -1,0 +1,541 @@
+{
+  "id": "mnist_resnet",
+  "name": "Tiny ResNet",
+  "architecture": "resnet",
+  "file": "mnist_resnet.onnx",
+  "input": {
+    "name": "input",
+    "shape": [
+      1,
+      1,
+      28,
+      28
+    ],
+    "image": [
+      28,
+      28
+    ]
+  },
+  "layers": [
+    {
+      "tensor": "input",
+      "label": "Input",
+      "op": "input",
+      "shape": [
+        1,
+        28,
+        28
+      ]
+    },
+    {
+      "tensor": "stem",
+      "label": "Stem",
+      "op": "conv",
+      "shape": [
+        8,
+        14,
+        14
+      ],
+      "source": "input",
+      "weight": "stem.weight",
+      "bias": "stem.bias",
+      "kernel": 3,
+      "stride": 2,
+      "padding": 1,
+      "activation": "relu"
+    },
+    {
+      "tensor": "conv1",
+      "label": "Block 1 / Conv",
+      "op": "conv",
+      "shape": [
+        8,
+        14,
+        14
+      ],
+      "source": "stem",
+      "weight": "conv1.weight",
+      "bias": "conv1.bias",
+      "kernel": 3,
+      "stride": 1,
+      "padding": 1,
+      "activation": "relu"
+    },
+    {
+      "tensor": "conv2",
+      "label": "Block 1 / Linear",
+      "op": "conv",
+      "shape": [
+        8,
+        14,
+        14
+      ],
+      "source": "conv1",
+      "weight": "conv2.weight",
+      "bias": "conv2.bias",
+      "kernel": 3,
+      "stride": 1,
+      "padding": 1,
+      "activation": "linear"
+    },
+    {
+      "tensor": "add1",
+      "label": "Residual 1",
+      "op": "add",
+      "shape": [
+        8,
+        14,
+        14
+      ],
+      "source": "conv2",
+      "skip": "stem",
+      "activation": "relu"
+    },
+    {
+      "tensor": "down",
+      "label": "Downsample",
+      "op": "conv",
+      "shape": [
+        16,
+        7,
+        7
+      ],
+      "source": "add1",
+      "weight": "down.weight",
+      "bias": "down.bias",
+      "kernel": 3,
+      "stride": 2,
+      "padding": 1,
+      "activation": "relu"
+    },
+    {
+      "tensor": "conv3",
+      "label": "Block 2 / Conv",
+      "op": "conv",
+      "shape": [
+        16,
+        7,
+        7
+      ],
+      "source": "down",
+      "weight": "conv3.weight",
+      "bias": "conv3.bias",
+      "kernel": 3,
+      "stride": 1,
+      "padding": 1,
+      "activation": "relu"
+    },
+    {
+      "tensor": "conv4",
+      "label": "Block 2 / Linear",
+      "op": "conv",
+      "shape": [
+        16,
+        7,
+        7
+      ],
+      "source": "conv3",
+      "weight": "conv4.weight",
+      "bias": "conv4.bias",
+      "kernel": 3,
+      "stride": 1,
+      "padding": 1,
+      "activation": "linear"
+    },
+    {
+      "tensor": "add2",
+      "label": "Residual 2",
+      "op": "add",
+      "shape": [
+        16,
+        7,
+        7
+      ],
+      "source": "conv4",
+      "skip": "down",
+      "activation": "relu"
+    },
+    {
+      "tensor": "pooled",
+      "label": "Global average",
+      "op": "pool",
+      "shape": [
+        1,
+        1,
+        16
+      ],
+      "source": "add2",
+      "axis": "spatial"
+    },
+    {
+      "tensor": "logits",
+      "label": "Logits",
+      "op": "dense",
+      "shape": [
+        1,
+        1,
+        10
+      ],
+      "source": "pooled",
+      "weight": "head.weight",
+      "bias": "head.bias",
+      "activation": "linear"
+    },
+    {
+      "tensor": "probs",
+      "label": "Prediction",
+      "op": "softmax",
+      "shape": [
+        1,
+        1,
+        10
+      ],
+      "source": "logits",
+      "output": true
+    }
+  ],
+  "params": 7226,
+  "training": {
+    "dataset": "MNIST",
+    "trainExamples": 55000,
+    "validationExamples": 5000,
+    "testExamples": 10000,
+    "seed": 71,
+    "epochs": 40,
+    "selectedBy": "best validation accuracy",
+    "validationAccuracy": 0.9824,
+    "testAccuracy": 0.9845,
+    "augmentation": "rotation \u00b112\u00b0, translation \u00b12px, scale 0.9\u20131.1",
+    "input": "28x28 grayscale [0,1]; no centering or deskew at inference",
+    "history": [
+      {
+        "epoch": 1,
+        "loss": 1.7367000893159346,
+        "validationAccuracy": 0.8266
+      },
+      {
+        "epoch": 2,
+        "loss": 0.5493131172440269,
+        "validationAccuracy": 0.9072
+      },
+      {
+        "epoch": 3,
+        "loss": 0.3615840346293016,
+        "validationAccuracy": 0.9236
+      },
+      {
+        "epoch": 4,
+        "loss": 0.28051580069715326,
+        "validationAccuracy": 0.933
+      },
+      {
+        "epoch": 5,
+        "loss": 0.25157537277395076,
+        "validationAccuracy": 0.9458
+      },
+      {
+        "epoch": 6,
+        "loss": 0.22588570024316962,
+        "validationAccuracy": 0.9502
+      },
+      {
+        "epoch": 7,
+        "loss": 0.19864652297388424,
+        "validationAccuracy": 0.9524
+      },
+      {
+        "epoch": 8,
+        "loss": 0.19828675255775452,
+        "validationAccuracy": 0.9572
+      },
+      {
+        "epoch": 9,
+        "loss": 0.1715922672401775,
+        "validationAccuracy": 0.9594
+      },
+      {
+        "epoch": 10,
+        "loss": 0.16031989298625426,
+        "validationAccuracy": 0.9628
+      },
+      {
+        "epoch": 11,
+        "loss": 0.14997467456730929,
+        "validationAccuracy": 0.9652
+      },
+      {
+        "epoch": 12,
+        "loss": 0.15267719637697394,
+        "validationAccuracy": 0.9648
+      },
+      {
+        "epoch": 13,
+        "loss": 0.13386173374111002,
+        "validationAccuracy": 0.9674
+      },
+      {
+        "epoch": 14,
+        "loss": 0.1257332307772203,
+        "validationAccuracy": 0.9674
+      },
+      {
+        "epoch": 15,
+        "loss": 0.12195671420639212,
+        "validationAccuracy": 0.9716
+      },
+      {
+        "epoch": 16,
+        "loss": 0.12035118770165877,
+        "validationAccuracy": 0.9676
+      },
+      {
+        "epoch": 17,
+        "loss": 0.11202928527593613,
+        "validationAccuracy": 0.968
+      },
+      {
+        "epoch": 18,
+        "loss": 0.10866964432651346,
+        "validationAccuracy": 0.9722
+      },
+      {
+        "epoch": 19,
+        "loss": 0.10338030544411052,
+        "validationAccuracy": 0.9708
+      },
+      {
+        "epoch": 20,
+        "loss": 0.10260841839855367,
+        "validationAccuracy": 0.974
+      },
+      {
+        "epoch": 21,
+        "loss": 0.09792276847904378,
+        "validationAccuracy": 0.9724
+      },
+      {
+        "epoch": 22,
+        "loss": 0.09664277292923494,
+        "validationAccuracy": 0.976
+      },
+      {
+        "epoch": 23,
+        "loss": 0.0908944026816975,
+        "validationAccuracy": 0.9746
+      },
+      {
+        "epoch": 24,
+        "loss": 0.09183889458396217,
+        "validationAccuracy": 0.9782
+      },
+      {
+        "epoch": 25,
+        "loss": 0.08733435662876476,
+        "validationAccuracy": 0.9736
+      },
+      {
+        "epoch": 26,
+        "loss": 0.0858289290189743,
+        "validationAccuracy": 0.9766
+      },
+      {
+        "epoch": 27,
+        "loss": 0.08274614748738028,
+        "validationAccuracy": 0.9762
+      },
+      {
+        "epoch": 28,
+        "loss": 0.08380809298970482,
+        "validationAccuracy": 0.9772
+      },
+      {
+        "epoch": 29,
+        "loss": 0.0785428369847211,
+        "validationAccuracy": 0.978
+      },
+      {
+        "epoch": 30,
+        "loss": 0.07848218768618323,
+        "validationAccuracy": 0.9766
+      },
+      {
+        "epoch": 31,
+        "loss": 0.0766711663517085,
+        "validationAccuracy": 0.9792
+      },
+      {
+        "epoch": 32,
+        "loss": 0.07655126170245084,
+        "validationAccuracy": 0.9816
+      },
+      {
+        "epoch": 33,
+        "loss": 0.07320175489105961,
+        "validationAccuracy": 0.9802
+      },
+      {
+        "epoch": 34,
+        "loss": 0.0726282174598087,
+        "validationAccuracy": 0.9778
+      },
+      {
+        "epoch": 35,
+        "loss": 0.07349393451213837,
+        "validationAccuracy": 0.9784
+      },
+      {
+        "epoch": 36,
+        "loss": 0.07051962874044071,
+        "validationAccuracy": 0.9796
+      },
+      {
+        "epoch": 37,
+        "loss": 0.06780964009111577,
+        "validationAccuracy": 0.9796
+      },
+      {
+        "epoch": 38,
+        "loss": 0.07094765496470712,
+        "validationAccuracy": 0.9802
+      },
+      {
+        "epoch": 39,
+        "loss": 0.06988789357813922,
+        "validationAccuracy": 0.9824
+      },
+      {
+        "epoch": 40,
+        "loss": 0.07014734905849804,
+        "validationAccuracy": 0.9806
+      }
+    ],
+    "torchVersion": "2.8.0+cu128",
+    "device": "cuda"
+  },
+  "weights": {
+    "file": "mnist_resnet.weights.bin",
+    "tensors": {
+      "stem.weight": {
+        "offset": 0,
+        "shape": [
+          8,
+          1,
+          3,
+          3
+        ]
+      },
+      "stem.bias": {
+        "offset": 72,
+        "shape": [
+          8
+        ]
+      },
+      "conv1.weight": {
+        "offset": 80,
+        "shape": [
+          8,
+          8,
+          3,
+          3
+        ]
+      },
+      "conv1.bias": {
+        "offset": 656,
+        "shape": [
+          8
+        ]
+      },
+      "conv2.weight": {
+        "offset": 664,
+        "shape": [
+          8,
+          8,
+          3,
+          3
+        ]
+      },
+      "conv2.bias": {
+        "offset": 1240,
+        "shape": [
+          8
+        ]
+      },
+      "down.weight": {
+        "offset": 1248,
+        "shape": [
+          16,
+          8,
+          3,
+          3
+        ]
+      },
+      "down.bias": {
+        "offset": 2400,
+        "shape": [
+          16
+        ]
+      },
+      "conv3.weight": {
+        "offset": 2416,
+        "shape": [
+          16,
+          16,
+          3,
+          3
+        ]
+      },
+      "conv3.bias": {
+        "offset": 4720,
+        "shape": [
+          16
+        ]
+      },
+      "conv4.weight": {
+        "offset": 4736,
+        "shape": [
+          16,
+          16,
+          3,
+          3
+        ]
+      },
+      "conv4.bias": {
+        "offset": 7040,
+        "shape": [
+          16
+        ]
+      },
+      "head.weight": {
+        "offset": 7056,
+        "shape": [
+          16,
+          10
+        ]
+      },
+      "head.bias": {
+        "offset": 7216,
+        "shape": [
+          10
+        ]
+      }
+    }
+  },
+  "auxiliary": [],
+  "verification": {
+    "inputs": 4,
+    "maxAbsoluteError": {
+      "stem": 0,
+      "conv1": 2.384185791015625e-06,
+      "conv2": 1.1444091796875e-05,
+      "add1": 1.1444091796875e-05,
+      "down": 5.340576171875e-05,
+      "conv3": 0.000152587890625,
+      "conv4": 0.00048828125,
+      "add2": 0.0001983642578125,
+      "pooled": 4.57763671875e-05,
+      "logits": 3.0517578125e-05,
+      "probs": 1.1920928955078125e-07
+    }
+  },
+  "sha256": "9273b1d1177800866e61e15766482af20cc3f9dcf505dbbcf1893b896b0de3be"
+}

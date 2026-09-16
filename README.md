@@ -2,15 +2,16 @@
 
 [Open the interactive observatory](https://mnist.cobanov.dev/)
 
-Draw a digit and explore two real pretrained networks in 3D. Follow a convolution,
-inspect every feature-map channel, watch a tensor flatten, and trace individual
+Draw a digit and explore four real trained networks in 3D. Follow a convolution,
+inspect feature-map channels, residual shortcuts, patch attention, and individual
 weighted contributions. Activations update live as you draw, with sampled real
 connections and a collapsible inspector. ONNX Runtime runs inference with WebGPU or WASM; Three.js
 renders the scene with WebGL.
 
 Built on [okdalto/VisualizeMNIST](https://github.com/okdalto/VisualizeMNIST) and
 [okdalto/CNN-visualization](https://github.com/okdalto/CNN-visualization), preserving
-their trained weights. See [attribution](THIRD_PARTY.md) and the
+their trained weights. Tiny ResNet and Tiny ViT are newly trained on MNIST;
+see their [model card and validation results](MODEL_CARD.md). See [attribution](THIRD_PARTY.md) and the
 [development handoff](HANDOFF.md) for tensor semantics, checks and limitations.
 
 ```sh

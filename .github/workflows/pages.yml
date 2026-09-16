@@ -22,12 +22,12 @@ jobs:
         with:
           node-version: '22'
       - run: node tools/check_math.mjs
-      - run: node --check web/assets/app.js && node --check web/assets/scene.js
+      - run: node --check web/assets/app.js && node --check web/assets/scene.js && node --check web/assets/operations.mjs
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - run: pip install numpy==2.2.6 onnx==1.19.0 onnxruntime==1.22.1
-      - run: python tools/export_mlp.py && python tools/export_cnn.py
+      - run: python tools/export_mlp.py && python tools/export_cnn.py && python tools/check_new_models.py
       - name: Restore deployment-only fonts
         env:
           GRIDNIK_REGULAR: ${{ secrets.GRIDNIK_REGULAR }}

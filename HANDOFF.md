@@ -4,14 +4,17 @@ Updated: 2026-09-16. This replaces the earlier prototype handoff.
 
 ## Product
 
-A browser-based neural network observatory with two **real pretrained models**:
+A browser-based neural network observatory with four **real trained models**:
 
 - Original MLP: 784 → 128 → 16 → 10 logits → softmax.
 - Original CNN: 1×32×32 → 16×16×16 → 32×8×8 → 32×4×4 → 32×2×2
   → flatten 128 → dense 128 → 10 logits → softmax.
 
-Both preserve okdalto's supplied weights. No new training or measured dataset
-accuracy is claimed. CNN source code uses four convolutions despite its README
+The two original models preserve okdalto's supplied weights; no new dataset
+accuracy is claimed for them. Tiny ResNet (7,226 parameters, two residual blocks)
+and Tiny ViT (22,714 parameters, 16 patches, three attention heads) were trained
+on MNIST. Both score 98.45% on the 10,000-image test split. See `MODEL_CARD.md`
+for architecture, split, training, verification and limitations. CNN source code uses four convolutions despite its README
 mentioning three. Attribution and original CNN sources are in `reference/cnn`.
 
 ## Run and verify
@@ -21,6 +24,7 @@ python3 -m http.server 8765 --directory web
 node tools/check_math.mjs
 uv run --with numpy --with onnx --with onnxruntime tools/export_mlp.py
 uv run --with numpy --with onnx --with onnxruntime tools/export_cnn.py
+uv run --with numpy --with onnx --with onnxruntime tools/check_new_models.py
 ```
 
 No bundler or npm install. Three.js and ONNX Runtime Web are pinned in the
@@ -95,15 +99,23 @@ GitHub Pages custom domain: `mnist.cobanov.dev`. Cloudflare has a DNS-only CNAME
 from `mnist` to `cobanov.github.io`. Deployment uses Actions; the custom domain
 is configured in repository Pages settings, with no `CNAME` file required.
 
-## Deliberate limits and next architecture
+## Architecture extensions and limits
 
-The manifest supports batch-one digit models and input/conv/dense/flatten/
-softmax operations. It is not an arbitrary ONNX graph viewer. A new architecture
-needs explicit operation semantics, trained weights, preprocessing and numeric
-parity checks before it can be offered in the UI.
+`tools/train_models.py` trains/exports the compact ResNet and ViT.
+`tools/check_new_models.py` independently reconstructs every new-model tensor.
+`web/assets/operations.mjs` supplies scalar token/attention/normalization helpers.
+The manifest includes add, spatial/token average, patches, embedding, norm,
+attention, value mixing and token-linear operations. All are batch-one digit
+models, not arbitrary ONNX graph support.
 
-Next useful additions: pooling-based CNN, then a small residual network. Treat
-pooling/skip connections as first-class operations. Attention needs its own
-representation, not another voxel grid. Avoid adding decorative connections
-that do not correspond to the model. No new architecture is implemented merely
-because it appears on this list.
+ViT uses a three-column reading layout with all patches and heads visible.
+Overview omits norm/projection/FFN intermediates; selecting one inserts it and
+Focus shows it alone. ResNet retains channel stacks, with sampled identity arcs.
+No decorative connections cross hidden operations. New-model signed values use
+magnitude brightness, with exact sign and selected-operation errors in the
+inspector. Attention uses sqrt(probability) brightness; its query arcs represent
+attention probabilities, not attribution or static learned edges.
+
+Preserve immediate updates, original model weights, input-facing centered camera,
+minimal header and the default-open inspector. Future architectures require
+trained weights, explicit operation semantics and independent parity checks.

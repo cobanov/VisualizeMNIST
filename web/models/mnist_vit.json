@@ -1,0 +1,618 @@
+{
+  "id": "mnist_vit",
+  "name": "Tiny ViT",
+  "architecture": "vit",
+  "file": "mnist_vit.onnx",
+  "input": {
+    "name": "input",
+    "shape": [
+      1,
+      1,
+      28,
+      28
+    ],
+    "image": [
+      28,
+      28
+    ]
+  },
+  "layers": [
+    {
+      "tensor": "input",
+      "label": "Input",
+      "op": "input",
+      "shape": [
+        1,
+        28,
+        28
+      ]
+    },
+    {
+      "tensor": "patches",
+      "label": "16 patches",
+      "op": "patches",
+      "shape": [
+        16,
+        7,
+        7
+      ],
+      "source": "input",
+      "patch": 7
+    },
+    {
+      "tensor": "tokens",
+      "label": "Patch embeddings",
+      "op": "embed",
+      "shape": [
+        1,
+        16,
+        48
+      ],
+      "source": "patches",
+      "weight": "embed.weight",
+      "bias": "embed.bias",
+      "position": "pos"
+    },
+    {
+      "tensor": "n1",
+      "label": "Norm 1",
+      "op": "norm",
+      "shape": [
+        1,
+        16,
+        48
+      ],
+      "source": "tokens",
+      "weight": "norm1.weight",
+      "bias": "norm1.bias",
+      "epsilon": 1e-05,
+      "overview": false
+    },
+    {
+      "tensor": "attention",
+      "label": "Attention \u00b7 3 heads",
+      "op": "attention",
+      "shape": [
+        3,
+        16,
+        16
+      ],
+      "source": "n1",
+      "weight": "qkv.weight",
+      "bias": "qkv.bias",
+      "heads": 3,
+      "headDim": 16,
+      "q": "q",
+      "k": "k",
+      "v": "v"
+    },
+    {
+      "tensor": "context",
+      "label": "Weighted values",
+      "op": "mix",
+      "shape": [
+        1,
+        16,
+        48
+      ],
+      "source": "attention",
+      "values": "v",
+      "heads": 3,
+      "headDim": 16,
+      "overview": false
+    },
+    {
+      "tensor": "projected",
+      "label": "Attention projection",
+      "op": "token_dense",
+      "shape": [
+        1,
+        16,
+        48
+      ],
+      "source": "context",
+      "weight": "project.weight",
+      "bias": "project.bias",
+      "activation": "linear",
+      "overview": false
+    },
+    {
+      "tensor": "add1",
+      "label": "Attention + input",
+      "op": "add",
+      "shape": [
+        1,
+        16,
+        48
+      ],
+      "source": "projected",
+      "skip": "tokens",
+      "activation": "linear"
+    },
+    {
+      "tensor": "n2",
+      "label": "Norm 2",
+      "op": "norm",
+      "shape": [
+        1,
+        16,
+        48
+      ],
+      "source": "add1",
+      "weight": "norm2.weight",
+      "bias": "norm2.bias",
+      "epsilon": 1e-05,
+      "overview": false
+    },
+    {
+      "tensor": "ff1",
+      "label": "Feed-forward / GELU",
+      "op": "token_dense",
+      "shape": [
+        1,
+        16,
+        96
+      ],
+      "source": "n2",
+      "weight": "ff1.weight",
+      "bias": "ff1.bias",
+      "activation": "gelu",
+      "overview": false
+    },
+    {
+      "tensor": "ff2",
+      "label": "Feed-forward / Linear",
+      "op": "token_dense",
+      "shape": [
+        1,
+        16,
+        48
+      ],
+      "source": "ff1",
+      "weight": "ff2.weight",
+      "bias": "ff2.bias",
+      "activation": "linear",
+      "overview": false
+    },
+    {
+      "tensor": "add2",
+      "label": "Feed-forward + input",
+      "op": "add",
+      "shape": [
+        1,
+        16,
+        48
+      ],
+      "source": "ff2",
+      "skip": "add1",
+      "activation": "linear"
+    },
+    {
+      "tensor": "n3",
+      "label": "Final norm",
+      "op": "norm",
+      "shape": [
+        1,
+        16,
+        48
+      ],
+      "source": "add2",
+      "weight": "norm3.weight",
+      "bias": "norm3.bias",
+      "epsilon": 1e-05,
+      "overview": false
+    },
+    {
+      "tensor": "pooled",
+      "label": "Token average",
+      "op": "pool",
+      "shape": [
+        1,
+        1,
+        48
+      ],
+      "source": "n3",
+      "axis": "tokens"
+    },
+    {
+      "tensor": "logits",
+      "label": "Logits",
+      "op": "dense",
+      "shape": [
+        1,
+        1,
+        10
+      ],
+      "source": "pooled",
+      "weight": "head.weight",
+      "bias": "head.bias",
+      "activation": "linear"
+    },
+    {
+      "tensor": "probs",
+      "label": "Prediction",
+      "op": "softmax",
+      "shape": [
+        1,
+        1,
+        10
+      ],
+      "source": "logits",
+      "output": true
+    }
+  ],
+  "params": 22714,
+  "training": {
+    "dataset": "MNIST",
+    "trainExamples": 55000,
+    "validationExamples": 5000,
+    "testExamples": 10000,
+    "seed": 71,
+    "epochs": 40,
+    "selectedBy": "best validation accuracy",
+    "validationAccuracy": 0.9814,
+    "testAccuracy": 0.9845,
+    "augmentation": "rotation \u00b112\u00b0, translation \u00b12px, scale 0.9\u20131.1",
+    "input": "28x28 grayscale [0,1]; no centering or deskew at inference",
+    "history": [
+      {
+        "epoch": 1,
+        "loss": 1.1908574970765546,
+        "validationAccuracy": 0.8692
+      },
+      {
+        "epoch": 2,
+        "loss": 0.4963887704675848,
+        "validationAccuracy": 0.9172
+      },
+      {
+        "epoch": 3,
+        "loss": 0.3410641580364921,
+        "validationAccuracy": 0.9328
+      },
+      {
+        "epoch": 4,
+        "loss": 0.2772356937083331,
+        "validationAccuracy": 0.9482
+      },
+      {
+        "epoch": 5,
+        "loss": 0.2337224516695196,
+        "validationAccuracy": 0.9358
+      },
+      {
+        "epoch": 6,
+        "loss": 0.20856464660167695,
+        "validationAccuracy": 0.9556
+      },
+      {
+        "epoch": 7,
+        "loss": 0.19078155260194432,
+        "validationAccuracy": 0.957
+      },
+      {
+        "epoch": 8,
+        "loss": 0.17997302463054657,
+        "validationAccuracy": 0.9634
+      },
+      {
+        "epoch": 9,
+        "loss": 0.16773214243758808,
+        "validationAccuracy": 0.966
+      },
+      {
+        "epoch": 10,
+        "loss": 0.16352896279638462,
+        "validationAccuracy": 0.9656
+      },
+      {
+        "epoch": 11,
+        "loss": 0.1540260711930015,
+        "validationAccuracy": 0.9698
+      },
+      {
+        "epoch": 12,
+        "loss": 0.14372728450135752,
+        "validationAccuracy": 0.9718
+      },
+      {
+        "epoch": 13,
+        "loss": 0.13943080327727578,
+        "validationAccuracy": 0.973
+      },
+      {
+        "epoch": 14,
+        "loss": 0.13689377665953203,
+        "validationAccuracy": 0.9638
+      },
+      {
+        "epoch": 15,
+        "loss": 0.1268634607076645,
+        "validationAccuracy": 0.9728
+      },
+      {
+        "epoch": 16,
+        "loss": 0.1288510996948589,
+        "validationAccuracy": 0.9678
+      },
+      {
+        "epoch": 17,
+        "loss": 0.1171347375457937,
+        "validationAccuracy": 0.971
+      },
+      {
+        "epoch": 18,
+        "loss": 0.11828805357542906,
+        "validationAccuracy": 0.968
+      },
+      {
+        "epoch": 19,
+        "loss": 0.11446740086295389,
+        "validationAccuracy": 0.9652
+      },
+      {
+        "epoch": 20,
+        "loss": 0.11119022772637281,
+        "validationAccuracy": 0.9732
+      },
+      {
+        "epoch": 21,
+        "loss": 0.10746126374764876,
+        "validationAccuracy": 0.9706
+      },
+      {
+        "epoch": 22,
+        "loss": 0.1082882564035329,
+        "validationAccuracy": 0.9746
+      },
+      {
+        "epoch": 23,
+        "loss": 0.10143941603628072,
+        "validationAccuracy": 0.973
+      },
+      {
+        "epoch": 24,
+        "loss": 0.09662284244949168,
+        "validationAccuracy": 0.9782
+      },
+      {
+        "epoch": 25,
+        "loss": 0.09891005367149006,
+        "validationAccuracy": 0.9754
+      },
+      {
+        "epoch": 26,
+        "loss": 0.0950700430517847,
+        "validationAccuracy": 0.974
+      },
+      {
+        "epoch": 27,
+        "loss": 0.0933948692094196,
+        "validationAccuracy": 0.9772
+      },
+      {
+        "epoch": 28,
+        "loss": 0.08897948010509664,
+        "validationAccuracy": 0.9774
+      },
+      {
+        "epoch": 29,
+        "loss": 0.08580885506814176,
+        "validationAccuracy": 0.9792
+      },
+      {
+        "epoch": 30,
+        "loss": 0.08148820268891074,
+        "validationAccuracy": 0.9762
+      },
+      {
+        "epoch": 31,
+        "loss": 0.08142366318702698,
+        "validationAccuracy": 0.9806
+      },
+      {
+        "epoch": 32,
+        "loss": 0.07812915904305198,
+        "validationAccuracy": 0.98
+      },
+      {
+        "epoch": 33,
+        "loss": 0.07634194452708418,
+        "validationAccuracy": 0.9784
+      },
+      {
+        "epoch": 34,
+        "loss": 0.07528164982172576,
+        "validationAccuracy": 0.9814
+      },
+      {
+        "epoch": 35,
+        "loss": 0.07729645323970101,
+        "validationAccuracy": 0.9804
+      },
+      {
+        "epoch": 36,
+        "loss": 0.07591305902762846,
+        "validationAccuracy": 0.9784
+      },
+      {
+        "epoch": 37,
+        "loss": 0.07059363605542616,
+        "validationAccuracy": 0.981
+      },
+      {
+        "epoch": 38,
+        "loss": 0.0726364499666474,
+        "validationAccuracy": 0.9804
+      },
+      {
+        "epoch": 39,
+        "loss": 0.07057175834178925,
+        "validationAccuracy": 0.978
+      },
+      {
+        "epoch": 40,
+        "loss": 0.07077069042704322,
+        "validationAccuracy": 0.979
+      }
+    ],
+    "torchVersion": "2.8.0+cu128",
+    "device": "cuda"
+  },
+  "weights": {
+    "file": "mnist_vit.weights.bin",
+    "tensors": {
+      "pos": {
+        "offset": 0,
+        "shape": [
+          1,
+          16,
+          48
+        ]
+      },
+      "embed.weight": {
+        "offset": 768,
+        "shape": [
+          49,
+          48
+        ]
+      },
+      "embed.bias": {
+        "offset": 3120,
+        "shape": [
+          48
+        ]
+      },
+      "norm1.weight": {
+        "offset": 3168,
+        "shape": [
+          48
+        ]
+      },
+      "norm1.bias": {
+        "offset": 3216,
+        "shape": [
+          48
+        ]
+      },
+      "qkv.weight": {
+        "offset": 3264,
+        "shape": [
+          48,
+          144
+        ]
+      },
+      "qkv.bias": {
+        "offset": 10176,
+        "shape": [
+          144
+        ]
+      },
+      "project.weight": {
+        "offset": 10320,
+        "shape": [
+          48,
+          48
+        ]
+      },
+      "project.bias": {
+        "offset": 12624,
+        "shape": [
+          48
+        ]
+      },
+      "norm2.weight": {
+        "offset": 12672,
+        "shape": [
+          48
+        ]
+      },
+      "norm2.bias": {
+        "offset": 12720,
+        "shape": [
+          48
+        ]
+      },
+      "ff1.weight": {
+        "offset": 12768,
+        "shape": [
+          48,
+          96
+        ]
+      },
+      "ff1.bias": {
+        "offset": 17376,
+        "shape": [
+          96
+        ]
+      },
+      "ff2.weight": {
+        "offset": 17472,
+        "shape": [
+          96,
+          48
+        ]
+      },
+      "ff2.bias": {
+        "offset": 22080,
+        "shape": [
+          48
+        ]
+      },
+      "norm3.weight": {
+        "offset": 22128,
+        "shape": [
+          48
+        ]
+      },
+      "norm3.bias": {
+        "offset": 22176,
+        "shape": [
+          48
+        ]
+      },
+      "head.weight": {
+        "offset": 22224,
+        "shape": [
+          48,
+          10
+        ]
+      },
+      "head.bias": {
+        "offset": 22704,
+        "shape": [
+          10
+        ]
+      }
+    }
+  },
+  "auxiliary": [
+    "q",
+    "k",
+    "v"
+  ],
+  "verification": {
+    "inputs": 4,
+    "maxAbsoluteError": {
+      "patches": 0,
+      "tokens": 0,
+      "n1": 7.152557373046875e-07,
+      "attention": 2.5331974029541016e-07,
+      "context": 7.152557373046875e-07,
+      "projected": 7.152557373046875e-07,
+      "add1": 7.152557373046875e-07,
+      "n2": 1.7881393432617188e-06,
+      "ff1": 1.8477439880371094e-06,
+      "ff2": 1.9073486328125e-06,
+      "add2": 1.6689300537109375e-06,
+      "n3": 4.820525646209717e-06,
+      "pooled": 1.1920928955078125e-06,
+      "logits": 7.62939453125e-06,
+      "probs": 2.60770320892334e-07,
+      "q": 9.5367431640625e-07,
+      "k": 1.1920928955078125e-06,
+      "v": 9.5367431640625e-07
+    }
+  },
+  "sha256": "069f98d0f260ffb77e1468bdbffb1cacb77a1ce233e72513cc761eabd0d0ec19"
+}
