@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
-import {channels, indexOf, intensity, sizeOf} from './math.mjs';
-import {easeInOut, transferMotion} from './motion.mjs';
+import {channels, indexOf, intensity, sizeOf, denseTerms, convolution} from './math.mjs';
+import {easeInOut} from './motion.mjs';
 
 const white = new THREE.Color('#e0e0e0'), black = new THREE.Color('#000');
 const matrix = new THREE.Matrix4(), color = new THREE.Color();
-const v = new THREE.Vector3(), scale = new THREE.Vector3(), q = new THREE.Quaternion();
+const v = new THREE.Vector3();
 export class NetworkScene {
   constructor(element, onPick) {
     this.element = element;
@@ -24,6 +24,7 @@ export class NetworkScene {
     this.root = new THREE.Group(); this.scene.add(this.root);
     this.overlays = new THREE.Group(); this.scene.add(this.overlays);
     this.layers = [];
+    this.connections=new THREE.Group();this.scene.add(this.connections);
     this.focused = false; this.active = 1; this.exposure = 1;
     this.labels = document.getElementById('scene-labels');
     new ResizeObserver(() => {
@@ -41,18 +42,6 @@ export class NetworkScene {
       const hit = ray.intersectObjects(this.layers.filter(l=>l.group.visible).map(l=>l.mesh))[0];
       if (hit) { const layer=this.layers.findIndex(l=>l.mesh===hit.object); onPick(layer,this.layers[layer].indices[hit.instanceId]); }
     });
-    const transferMaterial=new THREE.MeshBasicMaterial({color:'#ddd',transparent:true,opacity:.72,depthTest:false,depthWrite:false});
-    // Instance alpha fades each cell without shrinking it into a particle.
-    transferMaterial.onBeforeCompile=shader=>{
-      shader.vertexShader='attribute float transferOpacity;\nvarying float vTransferOpacity;\n'+shader.vertexShader;
-      shader.vertexShader=shader.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\nvTransferOpacity = transferOpacity;');
-      shader.fragmentShader='varying float vTransferOpacity;\n'+shader.fragmentShader;
-      shader.fragmentShader=shader.fragmentShader.replace('#include <color_fragment>','#include <color_fragment>\ndiffuseColor.a *= vTransferOpacity;');
-    };
-    this.ghost = new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),transferMaterial,2048);
-    this.transferOpacity=new THREE.InstancedBufferAttribute(new Float32Array(2048),1);
-    this.ghost.geometry.setAttribute('transferOpacity',this.transferOpacity);
-    this.ghost.count=0; this.ghost.frustumCulled=false; this.overlays.add(this.ghost);
     this.marker=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1,1,1)), new THREE.LineBasicMaterial({color:'#fff',transparent:true,opacity:.65,depthTest:false}));
     this.marker.visible=false;this.overlays.add(this.marker);
     this.links=new THREE.Group();this.overlays.add(this.links);
@@ -62,7 +51,8 @@ export class NetworkScene {
     group.traverse(o=>{if(o.geometry)geometries.add(o.geometry);if(o.material)materials.add(o.material);});
     for(const g of geometries)g.dispose();for(const m of materials){m.map?.dispose();m.dispose();}group.clear();
   }
-  load(manifest) {
+  load(manifest,weights) {
+    this.weights=weights;
     this.disposeGroup(this.root); this.clearLinks(); this.labels.replaceChildren();
     this.manifest=manifest; this.focused=false;
     let cursor=0;
@@ -73,14 +63,14 @@ export class NetworkScene {
       const group=new THREE.Group();this.root.add(group);
       const label=document.createElement('div');label.className='layer-label';
       const title=document.createElement('b');title.textContent=spec.label;label.append(title,document.createElement('span'));this.labels.append(label);
-      return {spec,li,group,label,x,z,width,cell,raw:new Float32Array(sizeOf(spec.shape)),display:null,indices:[],positions:new Map()};
+      return {spec,li,group,label,x,z,width,cell,raw:new Float32Array(sizeOf(spec.shape)),indices:[],positions:new Map()};
     });
     this.totalWidth=cursor;
     for(const l of this.layers)l.z-=cursor/2;
     this.rebuild(true);
   }
   rebuild(reframe = false) {
-    this.clearLinks();this.ghost.count=0;this.marker.visible=false;
+    this.clearLinks();this.marker.visible=false;
     for(const l of this.layers) {
       this.disposeGroup(l.group);
       l.channelLabels?.forEach(a=>a.element.remove());l.channelLabels=[];
@@ -113,7 +103,7 @@ export class NetworkScene {
       const edgeGeo=new THREE.BufferGeometry();edgeGeo.setAttribute('position',new THREE.BufferAttribute(edges,3));
       l.outline=new THREE.LineSegments(edgeGeo,new THREE.LineBasicMaterial({color:'#666',transparent:true,opacity:.45}));
       l.group.add(mesh,l.outline);
-      l.display=new Float32Array(count).fill(-1);l.dirty=true;
+      l.dirty=true;
       const bounds=new THREE.Box3().setFromObject(l.group);
       l.bounds=bounds;l.anchor=new THREE.Vector3((bounds.min.x+bounds.max.x)/2,bounds.min.y-.55,(bounds.min.z+bounds.max.z)/2);
       l.label.querySelector('span').textContent=c>1?`${h}×${w} · ${shown.length}/${c} channels`:`${sizeOf(l.spec.shape)} ${l.spec.op==='input'?'pixels':'values'}`;
@@ -123,7 +113,47 @@ export class NetworkScene {
         const element=document.createElement('span');element.className='channel-label';element.textContent=`CH ${String(c).padStart(2,'0')}`;this.labels.append(element);l.channelLabels.push({element,position:p});
       }
     }
-    this.setActive(this.active);if(reframe)this.frame();
+    this.buildConnections();this.setActive(this.active);if(reframe)this.frame();
+  }
+  buildConnections() {
+    this.disposeGroup(this.connections);
+    if(this.focused)return;
+    for(const l of this.layers){
+      const source=this.layers.find(a=>a.spec.tensor===l.spec.source),spec=l.spec;
+      if(!source||spec.op==='softmax')continue;
+      const edges=[],positions=[];
+      // Fixed spatial samples keep convolution wiring readable. Every segment is a real input term.
+      const targets=spec.op==='conv'?l.shown.flatMap(c=>channels(spec.shape[1],2).flatMap(y=>channels(spec.shape[2],2).map(x=>indexOf(spec.shape,c,y,x)))):l.indices;
+      for(const target of targets){
+        let terms;
+        if(spec.op==='dense')terms=denseTerms(source.raw,this.weights[spec.weight],sizeOf(spec.shape),target,'weights',4);
+        else if(spec.op==='conv'){
+          const [,h,w]=spec.shape;
+          terms=convolution(spec,source.spec.shape,source.raw,this.weights[spec.weight],this.weights[spec.bias],Math.floor(target/(h*w)),Math.floor(target/w)%h,target%w).terms
+            .filter(t=>!t.padding).map(t=>({i:indexOf(source.spec.shape,t.c,t.y,t.x),weight:t.weight}));
+        }else terms=[{i:target,weight:1}]; // Flatten preserves the exact tensor index.
+        for(const term of terms){
+          const from=source.positions.get(term.i),to=l.positions.get(target);
+          if(!from||!to)continue;
+          positions.push(...from.toArray(),...to.toArray());edges.push(term);
+        }
+      }
+      const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+      geometry.setAttribute('color',new THREE.Float32BufferAttribute(new Float32Array(positions.length),3));
+      const lines=new THREE.LineSegments(geometry,new THREE.LineBasicMaterial({vertexColors:true,transparent:true,opacity:.3,depthWrite:false}));
+      lines.userData={source,edges};this.connections.add(lines);
+    }
+    this.updateConnections();
+  }
+  updateConnections() {
+    for(const lines of this.connections.children){
+      const {source,edges}=lines.userData,colors=lines.geometry.attributes.color;
+      edges.forEach((term,i)=>{
+        const light=.08+.75*intensity(source.raw[term.i]*term.weight,'dense',this.exposure);
+        colors.setXYZ(i*2,light,light,light);colors.setXYZ(i*2+1,light,light,light);
+      });
+      colors.needsUpdate=true;
+    }
   }
   setActive(index) {
     this.active=index;
@@ -154,6 +184,7 @@ export class NetworkScene {
   }
   values(values) {
     for(const l of this.layers) { const raw=values[l.spec.tensor];if(raw.length!==sizeOf(l.spec.shape))throw Error(`Tensor size mismatch: ${l.spec.tensor}`);l.raw=raw;l.dirty=true; }
+    this.updateConnections();
   }
   clearLinks() {this.disposeGroup(this.links);}
   line(positions,negative=false) {
@@ -163,47 +194,10 @@ export class NetworkScene {
     const line=new THREE.LineSegments(geo,material);if(negative)line.computeLineDistances();this.links.add(line);
   }
   point(layer,index) {return layer.positions.get(index);}
-  showOperation(info,flow=null) {
-    this.ghost.count=0;this.marker.visible=false;
-    if(!info)return;
-    const l=this.layers[this.active],source=this.layers.find(a=>a.spec.tensor===l.spec.source);
-    const target=l.positions.get(info.index);
-    if(!flow&&target){this.marker.visible=true;this.marker.position.copy(target);this.marker.scale.setScalar(l.cell*1.14);this.marker.material.opacity=.65;}
-    if(!flow||!source)return;
-    const pairs=[];
-    for(const cell of flow){
-      const end=l.positions.get(cell.index);if(!end)continue;
-      // A quieter arrival pulse keeps concurrent destinations legible, including focus view.
-      pairs.push([end,end,l.cell*1.02,cell.phase,0,true]);
-      if(this.focused)continue;
-      const start=pairs.length;
-      if(l.spec.op==='conv'){
-        const spec=l.spec,[,h,w]=source.spec.shape;
-        const y=Math.floor(cell.index/spec.shape[2])%spec.shape[1],x=cell.index%spec.shape[2];
-        for(const c of source.shown)for(let ky=0;ky<spec.kernel;ky++)for(let kx=0;kx<spec.kernel;kx++){
-          const iy=y*spec.stride-spec.padding+ky,ix=x*spec.stride-spec.padding+kx;
-          if(iy<0||iy>=h||ix<0||ix>=w)continue;
-          const p=source.positions.get(indexOf(source.spec.shape,c,iy,ix));
-          if(p)pairs.push([p,end,source.cell*.42,cell.phase]);
-        }
-      }else if(l.spec.op==='dense'&&cell.showEdges){
-        for(const term of cell.terms){const p=source.positions.get(term.i);if(p)pairs.push([p,end,.055,cell.phase]);}
-      }else if(l.spec.op==='flatten'||l.spec.op==='softmax'){
-        const p=source.positions.get(cell.index);if(p)pairs.push([p,end,source.cell*.8,cell.phase]);
-      }
-      for(let i=start;i<pairs.length;i++)pairs[i][4]=(i-start)/Math.max(1,pairs.length-start-1);
-    }
-    this.ghost.count=Math.min(this.transferOpacity.count,pairs.length);
-    for(let i=0;i<this.ghost.count;i++){
-      const[a,b,s,local,order,pulse]=pairs[i];
-      const {travel,visibility,arrival}=transferMotion(local,order);
-      v.copy(a).lerp(b,travel);
-      const size=s*(1-.12*travel);
-      this.transferOpacity.setX(i,pulse?arrival*.55:visibility*.7);
-      scale.set(size,size,size*(pulse?.22:.4));matrix.compose(v,q,scale);this.ghost.setMatrixAt(i,matrix);
-    }
-    this.ghost.instanceMatrix.needsUpdate=true;
-    this.transferOpacity.needsUpdate=true;
+  showOperation(info) {
+    this.marker.visible=false;if(!info)return;
+    const l=this.layers[this.active],target=l.positions.get(info.index);
+    if(target){this.marker.visible=true;this.marker.position.copy(target);this.marker.scale.setScalar(l.cell*1.14);}
   }
   operationLinks(info) {
     this.clearLinks();if(!info||this.focused)return;
@@ -235,13 +229,13 @@ export class NetworkScene {
       if(t===1)this.cameraMove=null;
     }
     for(const l of this.layers){
-      let changing=false;
-      for(let i=0;i<l.indices.length;i++){
-        const raw=l.raw[l.indices[i]], target=intensity(raw,l.spec.op,this.exposure);
-        const last=l.display[i], next=reduced||last<0?target:last+(target-last)*(1-Math.exp(-dt*14));
-        if(Math.abs(next-last)>.0005||l.dirty){l.display[i]=next;const strength=raw<0?.015:next;color.copy(black).lerp(white,strength);l.mesh.setColorAt(i,color);changing=true;}
+      if(l.dirty){
+        for(let i=0;i<l.indices.length;i++){
+          const raw=l.raw[l.indices[i]],strength=raw<0?.015:intensity(raw,l.spec.op,this.exposure);
+          color.copy(black).lerp(white,strength);l.mesh.setColorAt(i,color);
+        }
+        l.mesh.instanceColor.needsUpdate=true;l.dirty=false;
       }
-      if(changing)l.mesh.instanceColor.needsUpdate=true;l.dirty=false;
       for(const a of l.channelLabels){v.copy(a.position).project(this.camera);a.element.style.left=`${(v.x*.5+.5)*this.element.clientWidth}px`;a.element.style.top=`${(-v.y*.5+.5)*this.element.clientHeight}px`;}
       if(!l.label.hidden){v.copy(l.anchor).project(this.camera);l.label.style.left=`${(v.x*.5+.5)*this.element.clientWidth}px`;l.label.style.top=`${(-v.y*.5+.5)*this.element.clientHeight}px`;l.label.style.visibility=Math.abs(v.z)>1?'hidden':'visible';}
     }

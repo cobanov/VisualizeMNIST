@@ -1,22 +1,18 @@
 import * as ort from 'onnxruntime-web';
 import {NetworkScene} from './scene.js';
 import {sizeOf, validate, convolution, denseTerms, intensity} from './math.mjs';
-import {flowAt, playbackAt} from './motion.mjs';
 
 ort.env.wasm.wasmPaths='https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/';
 ort.env.wasm.numThreads=1;
 const $=id=>document.getElementById(id);
 const motion=matchMedia('(prefers-reduced-motion: reduce)');
-let restartRequested=false, runAt=0, playbackTime=0;
-let playing=false, phase=0, position=0, selected=1, channel=0, model=null, revision=0, generation=0;
+let position=0, selected=1, channel=0, model=null, revision=0, generation=0;
 let dirty=true, empty=false, drawing=false, lastPoint=null, operation=null, lastTime=0;
-const flowOperations=new Map();
-let inspectorTime=0;
 const scene=new NetworkScene($('view'),(li,index)=>{
   if(!model?.values)return;
-  setPlaying(false);$('inspector').open=true;selectLayer(li);
+  $('inspector').open=true;selectLayer(li);
   const s=model.manifest.layers[li];channel=Math.floor(index/(s.shape[1]*s.shape[2]));
-  $('channel').value=String(channel);position=index%(s.shape[1]*s.shape[2]);phase=0;
+  $('channel').value=String(channel);position=index%(s.shape[1]*s.shape[2]);
   scene.channel=channel;scene.rebuild();updateOperation();
 });
 const pad=$('pad'),ctx=pad.getContext('2d'),small=document.createElement('canvas'),smallCtx=small.getContext('2d',{willReadFrequently:true});
@@ -33,10 +29,7 @@ for(let i=0;i<10;i++){
   bar.innerHTML=`<span>${i}</span><div class="bar-track"><div class="bar-fill"></div></div><span>0%</span>`;$('bars').append(bar);
 }
 const bars=[...$('bars').children];
-function changed(){
-  revision++;dirty=true;setPlaying(false);
-  restartRequested=!empty;runAt=performance.now()+300;
-}
+function changed(){revision++;dirty=true;}
 function clear(){ctx.fillStyle='#000';ctx.fillRect(0,0,280,280);empty=true;changed();$('input-note').textContent='Draw a digit or choose an example.';}
 function sample(which=7){
   clear();ctx.strokeStyle='#fff';ctx.lineWidth=18;ctx.lineCap='round';ctx.lineJoin='round';ctx.beginPath();
@@ -46,38 +39,22 @@ function sample(which=7){
 function point(e){const r=pad.getBoundingClientRect();return{x:(e.clientX-r.left)*280/r.width,y:(e.clientY-r.top)*280/r.height};}
 pad.addEventListener('pointerdown',e=>{drawing=true;lastPoint=point(e);pad.setPointerCapture(e.pointerId);ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(lastPoint.x,lastPoint.y,9,0,Math.PI*2);ctx.fill();empty=false;changed();$('input-note').textContent='Your input. Predictions update as you draw.';});
 pad.addEventListener('pointermove',e=>{if(!drawing)return;const p=point(e);ctx.strokeStyle='#fff';ctx.lineWidth=18;ctx.lineCap='round';ctx.lineJoin='round';ctx.beginPath();ctx.moveTo(lastPoint.x,lastPoint.y);ctx.lineTo(p.x,p.y);ctx.stroke();lastPoint=p;changed();});
-for(const event of ['pointerup','pointercancel','lostpointercapture'])pad.addEventListener(event,()=>{if(drawing){drawing=false;runAt=performance.now()+300;}});
+for(const event of ['pointerup','pointercancel','lostpointercapture'])pad.addEventListener(event,()=>drawing=false);
 $('clear').onclick=clear;$('sample').onclick=()=>sample(7);$('sample2').onclick=()=>sample(2);
-function setPlaying(value){
-  playing=value;restartRequested=false;
-  $('play').textContent=value?'Pause':'Replay';$('play').setAttribute('aria-pressed',String(value));
-  $('play').disabled=!model?.values||empty;
-  refreshFocus();updateOperation();
-}
-function startPlayback(){
-  if(!model?.values||empty)return;
-  if(dirty||model.pending||drawing){restartRequested=true;return;}
-  if(scene.focused)scene.focus(false);
-  playbackTime=0;setPlaying(!motion.matches);
-  selectLayer(motion.matches?model.manifest.layers.length-1:1);
-  if(motion.matches){position=model.values.probs.indexOf(Math.max(...model.values.probs));updateOperation();}
-}
-setPlaying(false);motion.addEventListener('change',()=>{if(motion.matches)setPlaying(false);});
-$('play').onclick=()=>{if(playing)setPlaying(false);else startPlayback();};
-$('layer-select').onchange=()=>{setPlaying(false);selectLayer(+$('layer-select').value);};
-$('channel').onchange=()=>{setPlaying(false);channel=+$('channel').value;scene.channel=channel;scene.rebuild();updateOperation();};
-$('edge-mode').onchange=()=>{flowOperations.clear();updateOperation();};
-$('exposure').oninput=()=>{scene.exposure=+$('exposure').value;scene.layers.forEach(l=>l.dirty=true);drawDetail();};
-$('focus').onclick=()=>{setPlaying(false);scene.focus(!scene.focused);refreshFocus();updateOperation();};
+$('layer-select').onchange=()=>selectLayer(+$('layer-select').value);
+$('channel').onchange=()=>{channel=+$('channel').value;scene.channel=channel;scene.rebuild();updateOperation();};
+$('edge-mode').onchange=updateOperation;
+$('exposure').oninput=()=>{scene.exposure=+$('exposure').value;scene.layers.forEach(l=>l.dirty=true);scene.updateConnections();drawDetail();};
+$('focus').onclick=()=>{scene.focus(!scene.focused);refreshFocus();updateOperation();};
 $('reset-view').onclick=()=>scene.frame();
 function refreshFocus(){
   $('focus').setAttribute('aria-pressed',String(scene.focused));$('focus').textContent=scene.focused?'Overview':'Focus layer';
   $('scene-mode').textContent=scene.focused?'LAYER EXPLORER':'NETWORK OVERVIEW';
-  $('scene-caption').textContent=scene.focused?'All channels. Click a cell to inspect its value.':playing?`${model.manifest.layers[selected].label} · ${selected} / ${model.manifest.layers.length-1}`:'Draw a digit to follow its path through the network.';
+  $('scene-caption').textContent=scene.focused?'All channels. Click a cell to inspect its value.':'Draw a digit. All layers update live.';
 }
 function countPositions(){const s=model?.manifest.layers[selected];return s?s.shape[1]*s.shape[2]:1;}
 function selectLayer(li){
-  if(!model)return;selected=li;position=0;phase=0;channel=0;flowOperations.clear();scene.channel=0;scene.setActive(li);
+  if(!model)return;selected=li;position=0;channel=0;scene.channel=0;scene.setActive(li);
   // Rebuild restores the overview sample if a previous selection inserted a channel.
   scene.rebuild(scene.focused);
   const spec=model.manifest.layers[li];
@@ -85,12 +62,12 @@ function selectLayer(li){
   $('selected-name').textContent=spec.label;$('explanation').textContent=explanations[spec.op];
   $('channel-control').hidden=spec.op!=='conv';$('edge-control').hidden=spec.op!=='dense';
   $('channel').replaceChildren(...Array.from({length:spec.shape[0]},(_,i)=>new Option(`${String(i).padStart(2,'0')} / ${spec.shape[0]} channels`,String(i))));
-  if(spec.op==='conv'&&!playing){position=Math.floor(spec.shape[1]/2)*spec.shape[2]+Math.floor(spec.shape[2]/2);}
+  if(spec.op==='conv'){position=Math.floor(spec.shape[1]/2)*spec.shape[2]+Math.floor(spec.shape[2]/2);}
   refreshFocus();updateOperation();
 }
 async function fetchOK(url){const r=await fetch(url);if(!r.ok)throw Error(`${r.status}: ${url}`);return r;}
 async function load(file){
-  setPlaying(false);const token=++generation,previous=model;model=null;$('model-select').disabled=true;$('play').disabled=true;
+  const token=++generation,previous=model;model=null;$('model-select').disabled=true;
   $('loading').hidden=false;$('loading').textContent='Loading trained network…';
   if(previous){await previous.pending?.catch(()=>{});await previous.session.release();}
   let session;
@@ -105,7 +82,7 @@ async function load(file){
       weights[name]=new Float32Array(buffer,t.offset*4,count);
     }
     if(token!==generation){await session.release();return;}
-    model={manifest,session,weights,values:null,pending:null};scene.load(manifest);scene.active=1;scene.channel=0;
+    model={manifest,session,weights,values:null,pending:null};scene.load(manifest,weights);scene.active=1;scene.channel=0;
     $('layer-select').replaceChildren(...manifest.layers.map((s,i)=>new Option(s.label,String(i))));
     $('input-size').textContent=manifest.input.image.join(' × ');$('backend').textContent=backend;
     $('params').textContent=`${manifest.params.toLocaleString('en-US')} PARAMETERS`;
@@ -122,13 +99,14 @@ async function infer(current){
   let outputs;
   try{
     outputs=await current.session.run({[current.manifest.input.name]:tensor});
-    if(model!==current||version!==revision)return;
+    // Show completed snapshots while drawing; discard stale results after a clear or finished stroke.
+    if(model!==current||(version!==revision&&!drawing))return;
     current.values={[current.manifest.input.name]:input};for(const[k,t]of Object.entries(outputs))current.values[k]=new Float32Array(t.data);
-    flowOperations.clear();scene.values(current.values);$('latency').textContent=`${(performance.now()-start).toFixed(1)} MS INFERENCE`;
+    scene.values(current.values);$('latency').textContent=`${(performance.now()-start).toFixed(1)} MS INFERENCE`;
     const probs=current.values.probs;let top=0;for(let i=1;i<10;i++)if(probs[i]>probs[top])top=i;
     $('digit').textContent=empty?'·':String(top);$('confidence').textContent=empty?'Blank input':`${(probs[top]*100).toFixed(1)}% probability`;
     bars.forEach((bar,i)=>{bar.classList.toggle('top',!empty&&i===top);bar.querySelector('.bar-fill').style.width=empty?'0%':`${probs[i]*100}%`;bar.lastChild.textContent=empty?'·':`${Math.round(probs[i]*100)}%`;});
-    $('play').disabled=empty;updateOperation();
+    updateOperation();
   }catch(error){if(model===current)showError(error);}finally{tensor.dispose();if(outputs)Object.values(outputs).forEach(t=>t.dispose());}
 }
 function updateOperation(){
@@ -159,9 +137,10 @@ function updateOperation(){
   }else{
     $('equation').textContent=`pixel[${y}, ${x}] = ${raw.toFixed(4)}`;$('selection').textContent='Black = 0. White = 1. Canvas resampled to the model’s native resolution.';
   }
-  scene.operationLinks(playing?null:operation);drawDetail();
+  const inspected=$('inspector').open?operation:null;
+  scene.showOperation(inspected);scene.operationLinks(inspected);drawDetail();
 }
-$('inspector').addEventListener('toggle',()=>{if($('inspector').open)drawDetail();});
+$('inspector').addEventListener('toggle',updateOperation);
 function drawDetail(){
   if(!$('inspector').open)return;
   g.fillStyle='#050505';g.fillRect(0,0,504,188);g.font='16px monospace';g.textBaseline='middle';
@@ -197,40 +176,10 @@ function drawDetail(){
 function loop(t){
   requestAnimationFrame(loop);const dt=Math.min((t-lastTime)/1000,.05);lastTime=t;
   if(model&&dirty&&!model.pending){const current=model;current.pending=infer(current).finally(()=>current.pending=null);}
-  // Wait for the latest stroke's inference, including a short multi-stroke grace period.
-  if(restartRequested&&model?.values&&!model.pending&&!dirty&&!drawing&&t>=runAt)startPlayback();
-  if(model?.values&&playing&&!drawing){
-    playbackTime+=dt;
-    const next=playbackAt(playbackTime,model.manifest.layers);
-    if(next.index!==selected)selectLayer(next.index);
-    phase=next.phase;
-    if(next.done){
-      position=model.values.probs.indexOf(Math.max(...model.values.probs));
-      setPlaying(false);
-      $('scene-caption').textContent='Prediction reached. Draw again or replay.';
-    }
-  }
-  let flow=null;
-  if(model?.values&&playing){
-    const spec=model.manifest.layers[selected];
-    if(spec.op!=='input'){
-      flow=flowAt(phase,countPositions()).map(cell=>{
-        const index=channel*countPositions()+cell.index;
-        if(!flowOperations.has(index))flowOperations.set(index,{index,
-          showEdges:$('edge-mode').value!=='off',
-          terms:spec.op==='dense'?denseTerms(model.values[spec.source],model.weights[spec.weight],sizeOf(spec.shape),index,$('edge-mode').value):[]});
-        return {...flowOperations.get(index),phase:cell.phase};
-      });
-      // Inspector updates are slower than rendering so numbers remain readable.
-      inspectorTime+=dt;
-      const head=Math.min(countPositions()-1,Math.floor(phase/.76*Math.max(1,countPositions()-1)));
-      if(inspectorTime>=.12&&position!==head){position=head;inspectorTime=0;updateOperation();}
-    }
-  }
-  scene.showOperation(operation,flow);scene.render(dt,motion.matches);
+  scene.render(dt,motion.matches);
 }
 addEventListener('keydown',e=>{
   if(['INPUT','SELECT','TEXTAREA','BUTTON','SUMMARY'].includes(e.target.tagName))return;
-  if(e.code==='Space'){e.preventDefault();$('play').click();}else if(e.key.toLowerCase()==='c')clear();
+  if(e.key.toLowerCase()==='c')clear();
 });
 sample(7);load('mnist_cnn.json');requestAnimationFrame(loop);
