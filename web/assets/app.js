@@ -1,5 +1,5 @@
 import * as ort from 'onnxruntime-web';
-import {NetworkScene} from './scene.js';
+import {NetworkScene} from './scene.js?v=3';
 import {sizeOf, validate, convolution, denseTerms, intensity} from './math.mjs';
 
 ort.env.wasm.wasmPaths='https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/';
