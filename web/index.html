@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VisualizeMNIST · Neural observatory</title>
+  <meta name="description" content="Draw a digit. Explore real neural activations, follow a convolution, and watch tensors unfold in an interactive 3D observatory.">
+  <meta name="theme-color" content="#000000">
+  <link rel="stylesheet" href="assets/site.css">
+  <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/","onnxruntime-web":"https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/ort.webgpu.min.mjs"}}</script>
+</head>
+<body>
+  <a class="skip" href="#controls">Skip to controls</a>
+  <header>
+    <div class="identity"><a href="./">VISUALIZE<span>MNIST</span></a><p>NEURAL OBSERVATORY / 01</p></div>
+    <div class="headline"><h1>A digit, unfolded.</h1><p>Trace the computation. Explore what the network sees.</p></div>
+    <label class="model-picker"><span>ARCHITECTURE</span><select id="model-select" aria-label="Architecture"><option value="mnist_cnn.json">Convolutional / CNN</option><option value="mnist_mlp.json">Fully connected / MLP</option></select></label>
+  </header>
+  <main>
+    <section class="workspace" aria-label="Interactive network">
+      <div class="scene-top"><div><span class="eyebrow" id="scene-mode">NETWORK OVERVIEW</span><p id="scene-caption">Real activations. An explorable path from pixels to prediction.</p></div><div class="view-actions"><button id="tour" aria-pressed="false">Follow signal</button><button id="focus" aria-pressed="false">Focus layer</button><button id="reset-view" aria-label="Reset camera">Reset view ↗</button></div></div>
+      <div id="view" aria-label="3D network. Use layer buttons below to inspect the network."><div id="loading" role="status">Loading trained network…</div><div id="scene-labels" aria-hidden="true"></div><div class="axis" aria-hidden="true">INPUT <span>──────────→</span> OUTPUT</div><div class="gesture">Drag to orbit · scroll to zoom · click a cell to inspect</div></div>
+      <div class="transport">
+        <div class="transport-buttons"><button id="play" aria-pressed="true">Pause</button><button id="step">Step →</button><label><span class="sr-only">Animation speed</span><select id="speed" aria-label="Animation speed"><option value="0.4">0.4×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label></div>
+        <div class="scrubber"><label for="progress"><span id="operation">Convolution</span><span id="position">0 / 0</span></label><input id="progress" type="range" min="0" max="255" value="0" step="1" aria-label="Operation position"></div>
+        <span class="playback-note">EXPLANATORY PLAYBACK<br>Actual outputs, slowed down.</span>
+      </div>
+      <nav id="layers" aria-label="Network layers"></nav>
+      <div class="scene-foot"><span id="tensor-summary">Loading tensor shapes</span><span>SELECT A LAYER TO FOLLOW ITS OPERATION</span></div>
+    </section>
+    <aside id="controls">
+      <section class="input-section"><div class="section-title"><h2>01 / Input</h2><span id="input-size">32 × 32</span></div><canvas id="pad" width="280" height="280" aria-label="Draw a digit with your pointer"></canvas><div class="input-actions"><button id="clear">Clear</button><button id="sample">Example 7</button><button id="sample2">Example 2</button></div><p class="micro" id="input-note">Draw your own digit or explore an example.</p></section>
+      <section class="prediction-section"><div class="section-title"><h2>02 / Prediction</h2><span id="confidence">Awaiting input</span></div><div class="prediction"><strong id="digit">·</strong><div id="bars"></div></div></section>
+      <section class="inspector"><div class="section-title"><h2>03 / Inspector</h2><span id="selected-name">Conv 1</span></div><p id="explanation"></p><div class="inspector-controls"><label id="channel-control">Output channel<select id="channel" aria-label="Output channel"></select></label><label id="edge-control" hidden>Connections<select id="edge-mode" aria-label="Connection display"><option value="contribution">Top contributions</option><option value="weights">Strongest weights</option><option value="off">Hidden</option></select></label><label>Exposure<input id="exposure" type="range" min="0.25" max="3" step="0.05" value="1" aria-label="Activation exposure"></label></div><canvas id="detail" width="504" height="188" aria-label="Selected computation detail"></canvas><p id="equation" class="equation"></p><p id="selection" class="micro"></p><details><summary>How to read this view</summary><p>Brightness shows activation. Hidden layers use a fixed exponential scale controlled by exposure. Predictions use absolute probability. Negative logits have dark fill and a bright outline.</p><p>Overview samples up to six evenly spaced channels per convolution. Focus reveals every channel. Moving cells explain the operation; they do not represent GPU execution order.</p><p>Dense lines show the top 12 terms for the selected neuron. Solid = positive weight, dashed = negative. Softmax is a shared normalization, not a learned connection.</p></details></section>
+    </aside>
+  </main>
+  <footer><div class="telemetry"><span id="backend">INITIALIZING</span><span id="latency">INFERENCE ···</span><span id="params">PARAMETERS ···</span></div><div><a href="https://github.com/okdalto/CNN-visualization" target="_blank" rel="noreferrer">Models & inspiration: okdalto ↗</a><span class="credit"> / cobanov</span></div></footer>
+  <script type="module" src="assets/app.js"></script>
+</body>
+</html>

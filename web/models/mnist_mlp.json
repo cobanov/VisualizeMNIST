@@ -1,0 +1,129 @@
+{
+  "id": "mnist_mlp",
+  "name": "Fully connected",
+  "subtitle": "Every pixel. Every connection.",
+  "params": 102714,
+  "source": "https://github.com/okdalto/VisualizeMNIST",
+  "file": "mnist_mlp.onnx",
+  "input": {
+    "name": "input",
+    "shape": [
+      1,
+      784
+    ],
+    "image": [
+      28,
+      28
+    ]
+  },
+  "layers": [
+    {
+      "tensor": "input",
+      "label": "Input",
+      "op": "input",
+      "shape": [
+        1,
+        28,
+        28
+      ]
+    },
+    {
+      "tensor": "h1",
+      "label": "Dense 128",
+      "op": "dense",
+      "shape": [
+        1,
+        8,
+        16
+      ],
+      "source": "input",
+      "weight": "W1",
+      "bias": "B1",
+      "activation": "relu"
+    },
+    {
+      "tensor": "h2",
+      "label": "Dense 16",
+      "op": "dense",
+      "shape": [
+        1,
+        4,
+        4
+      ],
+      "source": "h1",
+      "weight": "W2",
+      "bias": "B2",
+      "activation": "relu"
+    },
+    {
+      "tensor": "logits",
+      "label": "Logits",
+      "op": "dense",
+      "shape": [
+        1,
+        1,
+        10
+      ],
+      "source": "h2",
+      "weight": "W3",
+      "bias": "B3",
+      "activation": "linear"
+    },
+    {
+      "tensor": "probs",
+      "label": "Prediction",
+      "op": "softmax",
+      "shape": [
+        1,
+        1,
+        10
+      ],
+      "source": "logits",
+      "output": true
+    }
+  ],
+  "weights": {
+    "file": "mnist_mlp.weights.bin",
+    "tensors": {
+      "W1": {
+        "offset": 0,
+        "shape": [
+          784,
+          128
+        ]
+      },
+      "W2": {
+        "offset": 100352,
+        "shape": [
+          128,
+          16
+        ]
+      },
+      "W3": {
+        "offset": 102400,
+        "shape": [
+          16,
+          10
+        ]
+      },
+      "B1": {
+        "offset": 102560,
+        "shape": [
+          128
+        ]
+      },
+      "B2": {
+        "offset": 102688,
+        "shape": [
+          16
+        ]
+      },
+      "B3": {
+        "offset": 102704,
+        "shape": [
+          10
+        ]
+      }
+    }
+  }
+}
