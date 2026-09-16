@@ -34,8 +34,8 @@ not a measurement of GPU operation timing.
   operation playback, guided tour, UI.
 - `web/assets/scene.js`: instanced 3D cells, channel stacks/contact sheets,
   receptive fields, moving patches, flatten morph, dense connections, picking.
-- `web/assets/motion.mjs`: bounded C2 easing, per-operation timing, ordered
-  cell staggering and fade envelopes. Animation never modifies tensor data.
+- `web/assets/motion.mjs`: bounded C2 easing, whole-pass timing, overlapping
+  cell scheduling and fade envelopes. Animation never modifies tensor data.
 - `web/assets/math.mjs`: pure NCHW indexing, manifest checks, convolution
   reconstruction, dense contribution ranking, activation transfer function.
 - `tools/check_math.mjs`: runnable numeric checks without a test framework.
@@ -56,11 +56,16 @@ not a measurement of GPU operation timing.
 - Conv inspector computes the full all-channel dot product plus bias and ReLU;
   it shows the error against the actual ONNX value. The 3×3 mini-preview shows
   the input channel with greatest absolute contribution (labeled).
-- Dense view shows top 12 |x*w| or |w| for one selected neuron; solid positive
+- Paused dense view shows top 12 |x*w| or |w| for one selected neuron; solid positive
   weight, dashed negative. The detail table shows the first six contributions.
 - Play/pause, step, scrub and speed are operation-local. Follow signal cycles
-  through stages. Transfer cycles have a gather, eased travel, settle and fade;
-  all instances disappear before the loop resets. Flatten takes 2.8s at 1×.
+  through stages after each full pass. Play launches overlapping cell transfers,
+  with gather, eased travel, settle and fade. Duration is per selected channel/vector,
+  not per neuron: conv 4.2s, dense 3.2s, flatten 2.8s, softmax 2s at 1×.
+  Focus shows concurrent arrival pulses; pause/step restores single-cell inspection.
+  Dense flow caches the same top-12 ranking per neuron. The inspector refreshes
+  at most every 120ms, independently of the render loop. All transfers settle
+  before a pass resets. Animation does not imply measured GPU parallelism.
   Camera framing eases over 0.9s, with pointer interaction canceling the move.
   Layer/channel selection preserves the overview camera.
   Reduced motion starts paused and camera changes are immediate. Layer buttons and sliders

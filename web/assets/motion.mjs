@@ -4,7 +4,17 @@ export function easeInOut(t) {
   return t * t * t * (t * (t * 6 - 15) + 10);
 }
 
-export const cycleSeconds = {input: 1, conv: 1.65, dense: 1.4, flatten: 2.8, softmax: 1.8};
+// One complete channel/vector pass, independent of its number of cells.
+export const cycleSeconds = {input: 1, conv: 4.2, dense: 3.2, flatten: 2.8, softmax: 2};
+export function flowAt(phase, count) {
+  const cells=[];
+  if(phase<0||phase>=1)return cells;
+  for(let index=0;index<count;index++){
+    const local=(phase-.76*index/Math.max(1,count-1))/.24;
+    if(local>=0&&local<1)cells.push({index,phase:local});
+  }
+  return cells;
+}
 
 export function transferMotion(phase, order = 0) {
   const local = (phase - .08 - order * .12) / .72;

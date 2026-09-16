@@ -49,8 +49,8 @@ export class NetworkScene {
       shader.fragmentShader='varying float vTransferOpacity;\n'+shader.fragmentShader;
       shader.fragmentShader=shader.fragmentShader.replace('#include <color_fragment>','#include <color_fragment>\ndiffuseColor.a *= vTransferOpacity;');
     };
-    this.ghost = new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),transferMaterial,512);
-    this.transferOpacity=new THREE.InstancedBufferAttribute(new Float32Array(512),1);
+    this.ghost = new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),transferMaterial,2048);
+    this.transferOpacity=new THREE.InstancedBufferAttribute(new Float32Array(2048),1);
     this.ghost.geometry.setAttribute('transferOpacity',this.transferOpacity);
     this.ghost.count=0; this.ghost.frustumCulled=false; this.overlays.add(this.ghost);
     this.marker=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1,1,1)), new THREE.LineBasicMaterial({color:'#fff',transparent:true,opacity:.65,depthTest:false}));
@@ -163,32 +163,44 @@ export class NetworkScene {
     const line=new THREE.LineSegments(geo,material);if(negative)line.computeLineDistances();this.links.add(line);
   }
   point(layer,index) {return layer.positions.get(index);}
-  showOperation(info,phase) {
+  showOperation(info,flow=null) {
     this.ghost.count=0;this.marker.visible=false;
     if(!info)return;
     const l=this.layers[this.active],source=this.layers.find(a=>a.spec.tensor===l.spec.source);
     const target=l.positions.get(info.index);
-    const arrival=transferMotion(phase).arrival;
-    if(target){this.marker.visible=true;this.marker.position.copy(target);this.marker.scale.setScalar(l.cell*(1.14-.08*arrival));this.marker.material.opacity=.4+.5*arrival;}
-    if(this.focused||!source)return;
-    let pairs=[];
-    if(l.spec.op==='conv'&&target) {
-      for(const term of info.terms){if(term.padding)continue;const p=source.positions.get(indexOf(source.spec.shape,term.c,term.y,term.x));if(p)pairs.push([p,target,source.cell*.9]);}
-    } else if(l.spec.op==='flatten') {
-      for(const [index,p]of source.positions){const end=l.positions.get(index);if(end)pairs.push([p,end,source.cell*.8]);}
-    } else if(l.spec.op==='dense'&&target&&info.showEdges) {
-      for(const term of info.terms){const p=source.positions.get(term.i);if(p)pairs.push([p,target,.065]);}
-    } else if(l.spec.op==='softmax'&&target) {
-      const p=source.positions.get(info.index);if(p)pairs.push([p,target,.09]);
+    if(!flow&&target){this.marker.visible=true;this.marker.position.copy(target);this.marker.scale.setScalar(l.cell*1.14);this.marker.material.opacity=.65;}
+    if(!flow||!source)return;
+    const pairs=[];
+    for(const cell of flow){
+      const end=l.positions.get(cell.index);if(!end)continue;
+      // A quieter arrival pulse keeps concurrent destinations legible, including focus view.
+      pairs.push([end,end,l.cell*1.02,cell.phase,0,true]);
+      if(this.focused)continue;
+      const start=pairs.length;
+      if(l.spec.op==='conv'){
+        const spec=l.spec,[,h,w]=source.spec.shape;
+        const y=Math.floor(cell.index/spec.shape[2])%spec.shape[1],x=cell.index%spec.shape[2];
+        for(const c of source.shown)for(let ky=0;ky<spec.kernel;ky++)for(let kx=0;kx<spec.kernel;kx++){
+          const iy=y*spec.stride-spec.padding+ky,ix=x*spec.stride-spec.padding+kx;
+          if(iy<0||iy>=h||ix<0||ix>=w)continue;
+          const p=source.positions.get(indexOf(source.spec.shape,c,iy,ix));
+          if(p)pairs.push([p,end,source.cell*.42,cell.phase]);
+        }
+      }else if(l.spec.op==='dense'&&cell.showEdges){
+        for(const term of cell.terms){const p=source.positions.get(term.i);if(p)pairs.push([p,end,.055,cell.phase]);}
+      }else if(l.spec.op==='flatten'||l.spec.op==='softmax'){
+        const p=source.positions.get(cell.index);if(p)pairs.push([p,end,source.cell*.8,cell.phase]);
+      }
+      for(let i=start;i<pairs.length;i++)pairs[i][4]=(i-start)/Math.max(1,pairs.length-start-1);
     }
-    this.ghost.count=Math.min(512,pairs.length);
+    this.ghost.count=Math.min(this.transferOpacity.count,pairs.length);
     for(let i=0;i<this.ghost.count;i++){
-      // An ordered wave keeps the tensor readable. No random trajectories or index shuffling.
-      const {travel,visibility}=transferMotion(phase,i/Math.max(1,this.ghost.count-1));
-      const[a,b,s]=pairs[i];v.copy(a).lerp(b,travel);
+      const[a,b,s,local,order,pulse]=pairs[i];
+      const {travel,visibility,arrival}=transferMotion(local,order);
+      v.copy(a).lerp(b,travel);
       const size=s*(1-.12*travel);
-      this.transferOpacity.setX(i,visibility);
-      scale.set(size,size,size*.4);matrix.compose(v,q,scale);this.ghost.setMatrixAt(i,matrix);
+      this.transferOpacity.setX(i,pulse?arrival*.55:visibility*.7);
+      scale.set(size,size,size*(pulse?.22:.4));matrix.compose(v,q,scale);this.ghost.setMatrixAt(i,matrix);
     }
     this.ghost.instanceMatrix.needsUpdate=true;
     this.transferOpacity.needsUpdate=true;

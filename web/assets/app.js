@@ -1,15 +1,17 @@
 import * as ort from 'onnxruntime-web';
 import {NetworkScene} from './scene.js';
-import {sizeOf, indexOf, validate, convolution, denseTerms, intensity} from './math.mjs';
-import {cycleSeconds} from './motion.mjs';
+import {sizeOf, validate, convolution, denseTerms, intensity} from './math.mjs';
+import {cycleSeconds, flowAt} from './motion.mjs';
 
 ort.env.wasm.wasmPaths='https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/';
 ort.env.wasm.numThreads=1;
 const $=id=>document.getElementById(id);
 const motion=matchMedia('(prefers-reduced-motion: reduce)');
-let touring=false, tourTime=0;
+let touring=false;
 let playing=!motion.matches, phase=0, position=0, selected=1, channel=0, model=null, revision=0, generation=0;
 let dirty=true, empty=false, drawing=false, lastPoint=null, operation=null, lastTime=0;
+const flowOperations=new Map();
+let inspectorTime=0;
 const scene=new NetworkScene($('view'),(li,index)=>{
   selectLayer(li);
   const s=model.manifest.layers[li];channel=Math.floor(index/(s.shape[1]*s.shape[2]));
@@ -42,26 +44,31 @@ pad.addEventListener('pointerdown',e=>{drawing=true;lastPoint=point(e);pad.setPo
 pad.addEventListener('pointermove',e=>{if(!drawing)return;const p=point(e);ctx.strokeStyle='#fff';ctx.lineWidth=18;ctx.lineCap='round';ctx.lineJoin='round';ctx.beginPath();ctx.moveTo(lastPoint.x,lastPoint.y);ctx.lineTo(p.x,p.y);ctx.stroke();lastPoint=p;changed();});
 for(const event of ['pointerup','pointercancel','lostpointercapture'])pad.addEventListener(event,()=>drawing=false);
 $('clear').onclick=clear;$('sample').onclick=()=>sample(7);$('sample2').onclick=()=>sample(2);
-function setPlaying(value){playing=value;if(!value)setTour(false);$('play').textContent=value?'Pause':'Play';$('play').setAttribute('aria-pressed',String(value));}
+function setPlaying(value){
+  if(value&&!playing)phase=.76*position/Math.max(1,countPositions()-1);
+  playing=value;if(!value)setTour(false);
+  $('play').textContent=value?'Pause':'Play';$('play').setAttribute('aria-pressed',String(value));
+  updateOperation();
+}
 setPlaying(playing);motion.addEventListener('change',()=>{if(motion.matches)setPlaying(false);});
-function setTour(value){touring=value;tourTime=0;$('tour').setAttribute('aria-pressed',String(value));$('tour').textContent=value?'Stop tour':'Follow signal';}
+function setTour(value){touring=value;$('tour').setAttribute('aria-pressed',String(value));$('tour').textContent=value?'Stop tour':'Follow signal';}
 $('tour').onclick=()=>{setTour(!touring);if(touring){if(scene.focused){scene.focus(false);refreshFocus();}setPlaying(true);selectLayer(1);}};
 $('play').onclick=()=>setPlaying(!playing);
 $('step').onclick=()=>{setPlaying(false);position=(position+1)%countPositions();phase=0;updateOperation();};
 $('progress').oninput=()=>{setPlaying(false);position=+$('progress').value;phase=0;updateOperation();};
 $('channel').onchange=()=>{setTour(false);channel=+$('channel').value;scene.channel=channel;scene.rebuild();updateOperation();};
-$('edge-mode').onchange=()=>{setTour(false);updateOperation();};
+$('edge-mode').onchange=()=>{setTour(false);flowOperations.clear();updateOperation();};
 $('exposure').oninput=()=>{scene.exposure=+$('exposure').value;scene.layers.forEach(l=>l.dirty=true);drawDetail();};
 $('focus').onclick=()=>{setTour(false);scene.focus(!scene.focused);refreshFocus();updateOperation();};
 $('reset-view').onclick=()=>scene.frame();
 function refreshFocus(){
   $('focus').setAttribute('aria-pressed',String(scene.focused));$('focus').textContent=scene.focused?'Overview':'Focus layer';
   $('scene-mode').textContent=scene.focused?'LAYER EXPLORER':'NETWORK OVERVIEW';
-  $('scene-caption').textContent=scene.focused?'All channels. Click a cell to inspect its exact value.':'Real activations. Follow the highlighted operation.';
+  $('scene-caption').textContent=scene.focused?'All channels. Click a cell to inspect its exact value.':'Overlapping signal flow. Pause or step to inspect a single cell.';
 }
 function countPositions(){const s=model?.manifest.layers[selected];return s?s.shape[1]*s.shape[2]:1;}
 function selectLayer(li){
-  if(!model)return;selected=li;position=0;phase=0;channel=0;scene.channel=0;scene.setActive(li);
+  if(!model)return;selected=li;position=0;phase=0;channel=0;flowOperations.clear();scene.channel=0;scene.setActive(li);
   // Rebuild restores the overview sample if a previous selection inserted a channel.
   scene.rebuild(scene.focused);
   const spec=model.manifest.layers[li];
@@ -72,7 +79,7 @@ function selectLayer(li){
   $('channel-control').hidden=spec.op!=='conv';$('edge-control').hidden=spec.op!=='dense';
   $('channel').replaceChildren(...Array.from({length:spec.shape[0]},(_,i)=>new Option(`${String(i).padStart(2,'0')} / ${spec.shape[0]} channels`,String(i))));
   $('play').disabled=spec.op==='input';$('step').disabled=false;$('progress').disabled=false;
-  if(spec.op==='conv'){position=Math.floor(spec.shape[1]/2)*spec.shape[2]+Math.floor(spec.shape[2]/2);}
+  if(spec.op==='conv'&&!playing){position=Math.floor(spec.shape[1]/2)*spec.shape[2]+Math.floor(spec.shape[2]/2);}
   refreshFocus();updateOperation();
 }
 async function fetchOK(url){const r=await fetch(url);if(!r.ok)throw Error(`${r.status}: ${url}`);return r;}
@@ -118,7 +125,7 @@ async function infer(current){
     outputs=await current.session.run({[current.manifest.input.name]:tensor});
     if(model!==current||version!==revision)return;
     current.values={[current.manifest.input.name]:input};for(const[k,t]of Object.entries(outputs))current.values[k]=new Float32Array(t.data);
-    scene.values(current.values);$('latency').textContent=`${(performance.now()-start).toFixed(1)} MS INFERENCE`;
+    flowOperations.clear();scene.values(current.values);$('latency').textContent=`${(performance.now()-start).toFixed(1)} MS INFERENCE`;
     const probs=current.values.probs;let top=0;for(let i=1;i<10;i++)if(probs[i]>probs[top])top=i;
     $('digit').textContent=empty?'·':String(top);$('confidence').textContent=empty?'Blank input':`${(probs[top]*100).toFixed(1)}% probability`;
     bars.forEach((bar,i)=>{bar.classList.toggle('top',!empty&&i===top);bar.querySelector('.bar-fill').style.width=empty?'0%':`${probs[i]*100}%`;bar.lastChild.textContent=empty?'·':`${Math.round(probs[i]*100)}%`;});
@@ -156,7 +163,7 @@ function updateOperation(){
   }else{
     $('equation').textContent=`pixel[${y}, ${x}] = ${raw.toFixed(4)}`;$('selection').textContent='Black = 0. White = 1. Canvas resampled to the model’s native resolution.';
   }
-  scene.operationLinks(operation);drawDetail();
+  scene.operationLinks(playing?null:operation);drawDetail();
 }
 function drawDetail(){
   g.fillStyle='#050505';g.fillRect(0,0,504,188);g.font='16px monospace';g.textBaseline='middle';
@@ -194,10 +201,29 @@ function loop(t){
   if(model&&dirty&&!model.pending){const current=model;current.pending=infer(current).finally(()=>current.pending=null);}
   if(model?.values&&playing&&!drawing&&model.manifest.layers[selected].op!=='input'){
     phase+=dt*Number($('speed').value)/cycleSeconds[model.manifest.layers[selected].op];
-    if(touring){tourTime+=dt*Number($('speed').value);if(tourTime>7){tourTime=0;selectLayer(selected>=model.manifest.layers.length-1?1:selected+1);}}
-    if(phase>=1){phase%=1;position=(position+1)%countPositions();updateOperation();}
+    if(phase>=1){
+      phase%=1;
+      if(touring)selectLayer(selected>=model.manifest.layers.length-1?1:selected+1);
+    }
   }
-  scene.showOperation(operation,phase);scene.render(dt,motion.matches);
+  let flow=null;
+  if(model?.values&&playing){
+    const spec=model.manifest.layers[selected];
+    if(spec.op!=='input'){
+      flow=flowAt(phase,countPositions()).map(cell=>{
+        const index=channel*countPositions()+cell.index;
+        if(!flowOperations.has(index))flowOperations.set(index,{index,
+          showEdges:$('edge-mode').value!=='off',
+          terms:spec.op==='dense'?denseTerms(model.values[spec.source],model.weights[spec.weight],sizeOf(spec.shape),index,$('edge-mode').value):[]});
+        return {...flowOperations.get(index),phase:cell.phase};
+      });
+      // Inspector updates are slower than rendering so numbers remain readable.
+      inspectorTime+=dt;
+      const head=Math.min(countPositions()-1,Math.floor(phase/.76*Math.max(1,countPositions()-1)));
+      if(inspectorTime>=.12&&position!==head){position=head;inspectorTime=0;updateOperation();}
+    }
+  }
+  scene.showOperation(operation,flow);scene.render(dt,motion.matches);
 }
 addEventListener('keydown',e=>{
   if(['INPUT','SELECT','TEXTAREA','BUTTON','SUMMARY'].includes(e.target.tagName))return;
