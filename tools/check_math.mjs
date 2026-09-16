@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {convolution, denseTerms, indexOf, channels, intensity, validate} from '../web/assets/math.mjs';
-import {easeInOut} from '../web/assets/motion.mjs';
+import {easeInOut, perspectiveCenter} from '../web/assets/motion.mjs';
 for (const id of ['mnist_cnn', 'mnist_mlp']) validate(JSON.parse(readFileSync(new URL(`../web/models/${id}.json`, import.meta.url))));
 assert.equal(indexOf([2, 3, 4], 1, 2, 3), 23);
 assert.deepEqual(channels(32), [0, 6, 12, 19, 25, 31]);
@@ -19,6 +19,14 @@ console.log('PASS: manifests, NCHW indexing, padded multi-channel convolution, R
 assert.equal(easeInOut(-1),0);assert.equal(easeInOut(2),1);
 assert.ok(easeInOut(.01)<.00001);assert.ok(1-easeInOut(.99)<.00001);
 console.log('PASS: camera easing endpoints');
+// A large near input and small distant outputs must balance in screen space.
+const corners=[{x:-9,y:-7,z:12},{x:3,y:5,z:12},{x:15,y:2,z:-15},{x:10,y:-1,z:-15}];
+const distance=40,center=perspectiveCenter(corners,distance);
+for(const [i,axis] of ['x','y'].entries()){
+  const projected=corners.map(p=>(p[axis]-center[i])/(distance-p.z));
+  assert.ok(Math.abs(Math.min(...projected)+Math.max(...projected))<1e-8);
+}
+console.log('PASS: perspective camera centering');
 // Overview wiring uses fixed learned-weight ranks even when the drawing changes.
 const weights=[1,-5,3,-4,2];
 const fixed=denseTerms([0,1,2,3,4],weights,1,0,'weights',4);

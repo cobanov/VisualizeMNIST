@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {channels, indexOf, intensity, sizeOf, denseTerms, convolution} from './math.mjs';
-import {easeInOut} from './motion.mjs';
+import {easeInOut, perspectiveCenter} from './motion.mjs?v=2';
 
 const white = new THREE.Color('#e0e0e0'), black = new THREE.Color('#000');
 const matrix = new THREE.Matrix4(), color = new THREE.Color();
@@ -94,7 +94,13 @@ export class NetworkScene {
         l.indices.push(index);l.positions.set(index,new THREE.Vector3(px,py,pz));
       }
       const count=l.indices.length, geo=new THREE.BoxGeometry(cell*.82,cell*.82,cell*.2);
-      const mesh=new THREE.InstancedMesh(geo,new THREE.MeshBasicMaterial(),count);mesh.frustumCulled=false;l.mesh=mesh;
+      const material=new THREE.MeshBasicMaterial();
+      if(l.spec.op==='conv')material.onBeforeCompile=shader=>{
+        // Empty feature-map cells must not occlude deeper channels. Geometry stays pickable.
+        shader.fragmentShader=shader.fragmentShader.replace('#include <color_fragment>',
+          '#include <color_fragment>\nif (dot(diffuseColor.rgb, vec3(1.0)) == 0.0) discard;');
+      };
+      const mesh=new THREE.InstancedMesh(geo,material,count);mesh.frustumCulled=false;l.mesh=mesh;
       const outline=new THREE.EdgesGeometry(geo).attributes.position.array;
       const edges=new Float32Array(count*outline.length);
       l.indices.forEach((index,i)=>{
@@ -169,13 +175,17 @@ export class NetworkScene {
     const direction=this.focused?new THREE.Vector3(0,0,1):new THREE.Vector3(1,.55,1.3).normalize();
     const destination=center.clone().addScaledVector(direction,100);
     const rotation=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(destination,center,this.camera.up));
-    const inverse=rotation.invert(),tan=Math.tan(THREE.MathUtils.degToRad(this.camera.fov/2));
+    const inverse=rotation.clone().invert(),tan=Math.tan(THREE.MathUtils.degToRad(this.camera.fov/2)),corners=[];
     let distance=0;
     for(const l of this.layers.filter(l=>l.group.visible))for(const x of [l.bounds.min.x,l.bounds.max.x])for(const y of [l.bounds.min.y-1,l.bounds.max.y])for(const z of [l.bounds.min.z,l.bounds.max.z]){
       const p=new THREE.Vector3(x,y,z).sub(center).applyQuaternion(inverse);
+      corners.push(p);
       distance=Math.max(distance,Math.abs(p.x)/(tan*this.camera.aspect)+p.z,Math.abs(p.y)/tan+p.z);
     }
-    destination.copy(center).addScaledVector(direction,distance*1.08+1);
+    distance=distance*1.08+1;
+    const [offsetX,offsetY]=perspectiveCenter(corners,distance);
+    center.add(new THREE.Vector3(offsetX,offsetY,0).applyQuaternion(rotation));
+    destination.copy(center).addScaledVector(direction,distance);
     if(animate&&this.framed&&!matchMedia('(prefers-reduced-motion: reduce)').matches){
       this.cameraMove={from:this.camera.position.clone(),targetFrom:this.controls.target.clone(),to:destination,target:center,elapsed:0};
     }else{

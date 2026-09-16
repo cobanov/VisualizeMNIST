@@ -34,7 +34,7 @@ inference completes. There is no explanatory playback or transfer animation.
   live activation updates, UI.
 - `web/assets/scene.js`: instanced 3D cells, channel stacks/contact sheets,
   receptive fields, static connection lines, picking.
-- `web/assets/motion.mjs`: bounded C2 easing for user-triggered camera framing only.
+- `web/assets/motion.mjs`: camera easing and perspective-aware centering.
 - `web/assets/math.mjs`: pure NCHW indexing, manifest checks, convolution
   reconstruction, dense contribution ranking, activation transfer function.
 - `tools/check_math.mjs`: runnable numeric checks without a test framework.
@@ -73,6 +73,9 @@ inference completes. There is no explanatory playback or transfer animation.
   it and reduced motion makes it immediate. Drawing preserves camera and selection.
 - Input is at the +Z end of the network. Overview looks from the input side;
   both overview and focus read columns left to right, matching the drawing pad.
+  Framing centers projected layer bounds rather than the 3D bounding-box center.
+- Zero-activation convolution cells retain their grid and picking geometry but
+  discard their black fill, so empty front channels do not obscure deeper maps.
 
 ## Design and deployment
 
